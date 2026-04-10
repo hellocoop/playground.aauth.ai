@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AAuth Playground</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e4e4e7;
+      --muted: #71717a;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --success: #22c55e;
+      --error: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    h2 { font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--muted); font-weight: 400; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+    }
+    button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.6rem 1.2rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: var(--accent-hover); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.5rem 0.75rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      width: 100%;
+      margin-bottom: 0.75rem;
+    }
+    .status {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 500;
+    }
+    .status.authenticated { background: rgba(34, 197, 94, 0.15); color: var(--success); }
+    .status.unauthenticated { background: rgba(239, 68, 68, 0.15); color: var(--error); }
+    .token-display {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.75rem;
+      word-break: break-all;
+      white-space: pre-wrap;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 0.75rem;
+    }
+    .row { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem; }
+    .section { margin-top: 1.5rem; }
+    label { font-size: 0.85rem; color: var(--muted); display: block; margin-bottom: 0.25rem; }
+    .hidden { display: none; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <h1>AAuth Playground</h1>
+  <h2>Reference agent server &mdash; <a href="https://aauth.ai">aauth.ai</a></h2>
+
+  <div class="section">
+    <div class="card" id="auth-card">
+      <div class="row">
+        <span>Authentication</span>
+        <span class="status unauthenticated" id="auth-status">Not authenticated</span>
+      </div>
+      <div id="auth-form">
+        <label for="username">Username</label>
+        <input type="text" id="username" placeholder="Enter a username" />
+        <div class="row">
+          <button id="register-btn" onclick="register()">Register with WebAuthn</button>
+          <button id="login-btn" onclick="login()">Login</button>
+        </div>
+      </div>
+      <div id="auth-info" class="hidden">
+        <p>Logged in as <strong id="auth-user"></strong></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="agent-section" style="opacity: 0.4; pointer-events: none;">
+    <div class="card">
+      <h2 style="color: var(--text); font-weight: 600; font-size: 1rem;">Agent Token</h2>
+      <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 0.75rem;">
+        Generate an ephemeral key pair and request an agent token from this agent server.
+      </p>
+      <button onclick="getAgentToken()">Generate Agent Token</button>
+      <div id="token-result" class="hidden">
+        <label style="margin-top: 0.75rem;">Agent ID</label>
+        <div class="token-display" id="agent-id"></div>
+        <label style="margin-top: 0.75rem;">Agent Token (aa-agent+jwt)</label>
+        <div class="token-display" id="agent-token"></div>
+        <label style="margin-top: 0.75rem;">Decoded Payload</label>
+        <div class="token-display" id="token-payload"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="card">
+      <h2 style="color: var(--text); font-weight: 600; font-size: 1rem;">Well-Known Endpoints</h2>
+      <p style="font-size: 0.85rem;">
+        <a href="/.well-known/aauth-agent.json">/.well-known/aauth-agent.json</a><br>
+        <a href="/.well-known/jwks.json">/.well-known/jwks.json</a>
+      </p>
+    </div>
+  </div>
+
+  <script>
+    let sessionId = null
+
+    async function register() {
+      const username = document.getElementById('username').value.trim()
+      if (!username) return alert('Enter a username')
+
+      try {
+        // Get registration options
+        const optionsRes = await fetch('/webauthn/register/options', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username }),
+        })
+        const options = await optionsRes.json()
+
+        // Create credential
+        const credential = await navigator.credentials.create({ publicKey: parseCreationOptions(options) })
+
+        // Verify with server
+        const verifyRes = await fetch('/webauthn/register/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            response: serializeCredential(credential),
+            challenge: options.challenge,
+          }),
+        })
+        const result = await verifyRes.json()
+
+        if (result.verified) {
+          sessionId = result.sessionId
+          setAuthenticated(username)
+        }
+      } catch (err) {
+        console.error('Registration failed:', err)
+      }
+    }
+
+    async function login() {
+      const username = document.getElementById('username').value.trim()
+      if (!username) return alert('Enter a username')
+
+      try {
+        const optionsRes = await fetch('/webauthn/login/options', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username }),
+        })
+        const options = await optionsRes.json()
+
+        const credential = await navigator.credentials.get({ publicKey: parseRequestOptions(options) })
+
+        const verifyRes = await fetch('/webauthn/login/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            response: serializeAssertion(credential),
+            challenge: options.challenge,
+          }),
+        })
+        const result = await verifyRes.json()
+
+        if (result.verified) {
+          sessionId = result.sessionId
+          setAuthenticated(username)
+        }
+      } catch (err) {
+        console.error('Login failed:', err)
+      }
+    }
+
+    function setAuthenticated(username) {
+      document.getElementById('auth-status').textContent = 'Authenticated'
+      document.getElementById('auth-status').className = 'status authenticated'
+      document.getElementById('auth-form').classList.add('hidden')
+      document.getElementById('auth-info').classList.remove('hidden')
+      document.getElementById('auth-user').textContent = username
+      document.getElementById('agent-section').style.opacity = '1'
+      document.getElementById('agent-section').style.pointerEvents = 'auto'
+    }
+
+    async function getAgentToken() {
+      if (!sessionId) return
+
+      // Generate ephemeral Ed25519 key pair in the browser
+      const keyPair = await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify'])
+      const publicJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
+
+      const res = await fetch('/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-Id': sessionId,
+        },
+        body: JSON.stringify({ ephemeral_jwk: publicJwk }),
+      })
+      const data = await res.json()
+
+      document.getElementById('token-result').classList.remove('hidden')
+      document.getElementById('agent-id').textContent = data.agent_id
+      document.getElementById('agent-token').textContent = data.agent_token
+
+      // Decode payload
+      const parts = data.agent_token.split('.')
+      const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+      document.getElementById('token-payload').textContent = JSON.stringify(payload, null, 2)
+    }
+
+    // ── WebAuthn helpers ──
+
+    function base64urlToBuffer(str) {
+      const padded = str + '='.repeat((4 - (str.length % 4)) % 4)
+      const binary = atob(padded.replace(/-/g, '+').replace(/_/g, '/'))
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+      return bytes.buffer
+    }
+
+    function bufferToBase64url(buffer) {
+      const bytes = new Uint8Array(buffer)
+      let binary = ''
+      for (const b of bytes) binary += String.fromCharCode(b)
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    }
+
+    function parseCreationOptions(options) {
+      return {
+        ...options,
+        challenge: base64urlToBuffer(options.challenge),
+        user: {
+          ...options.user,
+          id: base64urlToBuffer(options.user.id),
+        },
+        excludeCredentials: (options.excludeCredentials || []).map(c => ({
+          ...c,
+          id: base64urlToBuffer(c.id),
+        })),
+      }
+    }
+
+    function parseRequestOptions(options) {
+      return {
+        ...options,
+        challenge: base64urlToBuffer(options.challenge),
+        allowCredentials: (options.allowCredentials || []).map(c => ({
+          ...c,
+          id: base64urlToBuffer(c.id),
+        })),
+      }
+    }
+
+    function serializeCredential(cred) {
+      return {
+        id: cred.id,
+        rawId: bufferToBase64url(cred.rawId),
+        type: cred.type,
+        response: {
+          clientDataJSON: bufferToBase64url(cred.response.clientDataJSON),
+          attestationObject: bufferToBase64url(cred.response.attestationObject),
+          transports: cred.response.getTransports?.() || [],
+        },
+        clientExtensionResults: cred.getClientExtensionResults(),
+        authenticatorAttachment: cred.authenticatorAttachment,
+      }
+    }
+
+    function serializeAssertion(cred) {
+      return {
+        id: cred.id,
+        rawId: bufferToBase64url(cred.rawId),
+        type: cred.type,
+        response: {
+          clientDataJSON: bufferToBase64url(cred.response.clientDataJSON),
+          authenticatorData: bufferToBase64url(cred.response.authenticatorData),
+          signature: bufferToBase64url(cred.response.signature),
+          userHandle: cred.response.userHandle ? bufferToBase64url(cred.response.userHandle) : null,
+        },
+        clientExtensionResults: cred.getClientExtensionResults(),
+        authenticatorAttachment: cred.authenticatorAttachment,
+      }
+    }
+  </script>
+</body>
+</html>
