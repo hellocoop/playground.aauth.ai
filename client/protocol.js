@@ -322,7 +322,12 @@ function renderInteraction(interaction, pollUrl) {
     return `<p style="color: var(--muted);">Interaction required but missing: ${escapeHtml(missing.join(', '))}.</p>`
   }
 
-  const fullUrl = `${interaction.url}?code=${encodeURIComponent(interaction.code)}`
+  // Per spec: append `callback=<url>` so the PS redirects the user back
+  // to the agent after consent. We use the playground's origin (no path)
+  // — restoreInteractionState() reads the saved pending state on load and
+  // resumes polling, no special callback handler is needed.
+  const callbackUrl = `${window.location.origin}/`
+  const fullUrl = `${interaction.url}?code=${encodeURIComponent(interaction.code)}&callback=${encodeURIComponent(callbackUrl)}`
   const qrId = `qr-${Math.random().toString(36).slice(2, 9)}`
 
   const html = `
@@ -330,13 +335,13 @@ function renderInteraction(interaction, pollUrl) {
       <p>The Person Server requires user interaction.</p>
       <div class="interaction-code">${escapeHtml(interaction.code)}</div>
       <div class="interaction-actions">
-        <a class="interaction-link" href="${escapeHtml(fullUrl)}" target="_blank" rel="noopener">
+        <a class="interaction-link" href="${escapeHtml(fullUrl)}">
           Open Person Server &rarr;
         </a>
         <code class="interaction-url">${escapeHtml(fullUrl)}</code>
       </div>
       <div class="qr-code" id="${qrId}"></div>
-      <p class="qr-caption">Scan with another device to continue</p>
+      <p class="qr-caption">Or scan with another device to continue</p>
     </div>
   `
 
@@ -359,11 +364,32 @@ function renderInteraction(interaction, pollUrl) {
 
 let pollInterval = null
 
+// localStorage key used to remember an in-flight interaction across page
+// navigations (so a same-tab redirect to the PS and back resumes polling).
+const PENDING_KEY = 'aauth-pending-interaction'
+
+function savePendingInteraction(absolutePollUrl, baseUrl) {
+  try {
+    localStorage.setItem(PENDING_KEY, JSON.stringify({
+      pollUrl: absolutePollUrl,
+      tokenEndpoint: baseUrl,
+      startedAt: Date.now(),
+    }))
+  } catch { /* storage might be disabled */ }
+}
+
+function clearPendingInteraction() {
+  try { localStorage.removeItem(PENDING_KEY) } catch {}
+}
+
 function startPolling(pollUrl, baseUrl, interactionStep) {
   if (pollInterval) clearInterval(pollInterval)
 
   // Resolve relative poll URL against the PS base
   const absolutePollUrl = new URL(pollUrl, baseUrl).href
+
+  // Persist so we can resume after a same-tab redirect to the PS and back.
+  savePendingInteraction(absolutePollUrl, baseUrl)
 
   pollInterval = setInterval(async () => {
     try {
@@ -383,6 +409,7 @@ function startPolling(pollUrl, baseUrl, interactionStep) {
       if (res.status === 200) {
         clearInterval(pollInterval)
         pollInterval = null
+        clearPendingInteraction()
         const body = await res.json()
         resolveStep(interactionStep, 'success', 'Interaction Completed')
         addLogStep('Authorization Granted', 'success',
@@ -393,12 +420,14 @@ function startPolling(pollUrl, baseUrl, interactionStep) {
       } else if (res.status === 403) {
         clearInterval(pollInterval)
         pollInterval = null
+        clearPendingInteraction()
         resolveStep(interactionStep, 'error', 'Interaction Denied')
         addLogStep('Authorization Denied', 'error',
           formatResponse(403, null, await res.json().catch(() => null)))
       } else if (res.status === 408) {
         clearInterval(pollInterval)
         pollInterval = null
+        clearPendingInteraction()
         resolveStep(interactionStep, 'error', 'Interaction Timed Out')
         addLogStep('Authorization Timed Out', 'error',
           formatResponse(408, null, null))
@@ -410,6 +439,38 @@ function startPolling(pollUrl, baseUrl, interactionStep) {
     }
   }, 5000)
 }
+
+// Resume a polling cycle that was started before the user navigated away
+// to the PS for consent. Called from app.js after the session + agent
+// token + ephemeral key have all been restored.
+function resumePendingInteraction() {
+  let saved
+  try {
+    saved = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null')
+  } catch { saved = null }
+  if (!saved || !saved.pollUrl) return false
+
+  // Stale (>1h) — agent token is gone anyway, drop it.
+  if (Date.now() - (saved.startedAt || 0) > 3600 * 1000) {
+    clearPendingInteraction()
+    return false
+  }
+
+  // Need agent token + ephemeral key to sign the polls. If they aren't
+  // restored yet (or ever), give up cleanly.
+  if (!agentToken || !ephemeralKeyPair) {
+    clearPendingInteraction()
+    return false
+  }
+
+  showLog()
+  const step = addLogStep('Resuming after Person Server interaction', 'pending',
+    `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
+  )
+  startPolling(saved.pollUrl, saved.tokenEndpoint, step)
+  return true
+}
+window.resumePendingInteraction = resumePendingInteraction
 
 function decodeJWTPayloadBrowser(jwt) {
   try {

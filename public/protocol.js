@@ -3090,20 +3090,21 @@ ${renderJSON(body)}`;
       if (!interaction.code) missing.push("code");
       return `<p style="color: var(--muted);">Interaction required but missing: ${escapeHtml(missing.join(", "))}.</p>`;
     }
-    const fullUrl = `${interaction.url}?code=${encodeURIComponent(interaction.code)}`;
+    const callbackUrl = `${window.location.origin}/`;
+    const fullUrl = `${interaction.url}?code=${encodeURIComponent(interaction.code)}&callback=${encodeURIComponent(callbackUrl)}`;
     const qrId = `qr-${Math.random().toString(36).slice(2, 9)}`;
     const html = `
     <div class="interaction-box">
       <p>The Person Server requires user interaction.</p>
       <div class="interaction-code">${escapeHtml(interaction.code)}</div>
       <div class="interaction-actions">
-        <a class="interaction-link" href="${escapeHtml(fullUrl)}" target="_blank" rel="noopener">
+        <a class="interaction-link" href="${escapeHtml(fullUrl)}">
           Open Person Server &rarr;
         </a>
         <code class="interaction-url">${escapeHtml(fullUrl)}</code>
       </div>
       <div class="qr-code" id="${qrId}"></div>
-      <p class="qr-caption">Scan with another device to continue</p>
+      <p class="qr-caption">Or scan with another device to continue</p>
     </div>
   `;
     setTimeout(() => {
@@ -3121,9 +3122,27 @@ ${renderJSON(body)}`;
     return html;
   }
   var pollInterval = null;
+  var PENDING_KEY = "aauth-pending-interaction";
+  function savePendingInteraction(absolutePollUrl, baseUrl) {
+    try {
+      localStorage.setItem(PENDING_KEY, JSON.stringify({
+        pollUrl: absolutePollUrl,
+        tokenEndpoint: baseUrl,
+        startedAt: Date.now()
+      }));
+    } catch {
+    }
+  }
+  function clearPendingInteraction() {
+    try {
+      localStorage.removeItem(PENDING_KEY);
+    } catch {
+    }
+  }
   function startPolling(pollUrl, baseUrl, interactionStep) {
     if (pollInterval) clearInterval(pollInterval);
     const absolutePollUrl = new URL(pollUrl, baseUrl).href;
+    savePendingInteraction(absolutePollUrl, baseUrl);
     pollInterval = setInterval(async () => {
       try {
         const signingJwk = await crypto.subtle.exportKey("jwk", ephemeralKeyPair.publicKey);
@@ -3137,6 +3156,7 @@ ${renderJSON(body)}`;
         if (res.status === 200) {
           clearInterval(pollInterval);
           pollInterval = null;
+          clearPendingInteraction();
           const body = await res.json();
           resolveStep(interactionStep, "success", "Interaction Completed");
           addLogStep(
@@ -3151,6 +3171,7 @@ ${renderJSON(body)}`;
         } else if (res.status === 403) {
           clearInterval(pollInterval);
           pollInterval = null;
+          clearPendingInteraction();
           resolveStep(interactionStep, "error", "Interaction Denied");
           addLogStep(
             "Authorization Denied",
@@ -3160,6 +3181,7 @@ ${renderJSON(body)}`;
         } else if (res.status === 408) {
           clearInterval(pollInterval);
           pollInterval = null;
+          clearPendingInteraction();
           resolveStep(interactionStep, "error", "Interaction Timed Out");
           addLogStep(
             "Authorization Timed Out",
@@ -3172,6 +3194,32 @@ ${renderJSON(body)}`;
       }
     }, 5e3);
   }
+  function resumePendingInteraction() {
+    let saved;
+    try {
+      saved = JSON.parse(localStorage.getItem(PENDING_KEY) || "null");
+    } catch {
+      saved = null;
+    }
+    if (!saved || !saved.pollUrl) return false;
+    if (Date.now() - (saved.startedAt || 0) > 3600 * 1e3) {
+      clearPendingInteraction();
+      return false;
+    }
+    if (!agentToken || !ephemeralKeyPair) {
+      clearPendingInteraction();
+      return false;
+    }
+    showLog();
+    const step = addLogStep(
+      "Resuming after Person Server interaction",
+      "pending",
+      `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
+    );
+    startPolling(saved.pollUrl, saved.tokenEndpoint, step);
+    return true;
+  }
+  window.resumePendingInteraction = resumePendingInteraction;
   function decodeJWTPayloadBrowser(jwt) {
     try {
       const parts = jwt.split(".");

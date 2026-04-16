@@ -600,6 +600,10 @@ if (savedSession) {
       if (!restored) {
         await generateAndSaveAgentToken()
       }
+
+      // If the user is returning from a PS interaction (same-tab redirect
+      // back to '/'), resume polling where we left off.
+      window.resumePendingInteraction?.()
     }
   })
 }
