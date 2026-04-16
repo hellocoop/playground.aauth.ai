@@ -74,4 +74,10 @@ export function generateJTI(): string {
   return base64urlEncode(bytes)
 }
 
+export function decodeJWTPayload(jwt: string): Record<string, unknown> {
+  const parts = jwt.split('.')
+  const json = new TextDecoder().decode(base64urlDecode(parts[1]))
+  return JSON.parse(json)
+}
+
 export { base64urlEncode, base64urlDecode }

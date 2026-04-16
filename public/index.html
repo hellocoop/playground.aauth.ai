@@ -14,94 +14,14 @@
   <meta property="og:image:height" content="630" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:image" content="https://playground.aauth.dev/og.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/styles.css">
   <!-- Privacy-friendly analytics by Plausible -->
   <script async src="https://plausible.io/js/pa-hgL9ORgnlvRi56cN2C0My.js"></script>
-  <script>
-    window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
-    plausible.init()
-  </script>
-  <style>
-    :root {
-      --bg: #0f1117;
-      --surface: #1a1d27;
-      --border: #2a2d3a;
-      --text: #e4e4e7;
-      --muted: #71717a;
-      --accent: #6366f1;
-      --accent-hover: #818cf8;
-      --success: #22c55e;
-      --error: #ef4444;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-      padding: 2rem;
-      max-width: 720px;
-      margin: 0 auto;
-    }
-    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
-    h2 { font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--muted); font-weight: 400; }
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.5rem;
-      margin-bottom: 1rem;
-    }
-    button {
-      background: var(--accent);
-      color: white;
-      border: none;
-      padding: 0.6rem 1.2rem;
-      border-radius: 8px;
-      font-size: 0.9rem;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    button:hover { background: var(--accent-hover); }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    input {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 0.5rem 0.75rem;
-      border-radius: 8px;
-      font-size: 0.9rem;
-      width: 100%;
-      margin-bottom: 0.75rem;
-    }
-    .status {
-      display: inline-block;
-      padding: 0.25rem 0.75rem;
-      border-radius: 999px;
-      font-size: 0.8rem;
-      font-weight: 500;
-    }
-    .status.authenticated { background: rgba(34, 197, 94, 0.15); color: var(--success); }
-    .status.unauthenticated { background: rgba(239, 68, 68, 0.15); color: var(--error); }
-    .token-display {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1rem;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 0.75rem;
-      word-break: break-all;
-      white-space: pre-wrap;
-      max-height: 300px;
-      overflow-y: auto;
-      margin-top: 0.75rem;
-    }
-    .row { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem; }
-    .section { margin-top: 1.5rem; }
-    label { font-size: 0.85rem; color: var(--muted); display: block; margin-bottom: 0.25rem; }
-    .secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
-    .hidden { display: none; }
-    a { color: var(--accent); }
-  </style>
+  <script src="/plausible-init.js"></script>
 </head>
 <body>
   <h1>AAuth Playground</h1>
@@ -117,7 +37,7 @@
         <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 0.5rem;">Your agent identifier</p>
         <p style="font-family: 'SF Mono', 'Fira Code', monospace; font-size: 1rem; margin-bottom: 0.75rem;" id="agent-name"></p>
         <div class="row">
-          <button id="auth-btn" onclick="authenticate()">Authenticate with Passkey</button>
+          <button id="auth-btn">Authenticate with Passkey</button>
         </div>
       </div>
       <div id="auth-info" class="hidden">
@@ -128,19 +48,60 @@
 
   <div class="section" id="agent-section" style="opacity: 0.4; pointer-events: none;">
     <div class="card">
-      <h2 style="color: var(--text); font-weight: 600; font-size: 1rem;">Agent Token</h2>
-      <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 0.75rem;">
-        Generate an ephemeral key pair and request an agent token from this agent server.
-      </p>
-      <button onclick="getAgentToken()">Generate Agent Token</button>
-      <div id="token-result" class="hidden">
-        <label style="margin-top: 0.75rem;">Agent ID</label>
-        <div class="token-display" id="agent-id"></div>
-        <label style="margin-top: 0.75rem;">Agent Token (aa-agent+jwt)</label>
-        <div class="token-display" id="agent-token"></div>
-        <label style="margin-top: 0.75rem;">Decoded Payload</label>
-        <div class="token-display" id="token-payload"></div>
+      <div class="row">
+        <span style="font-weight: 600;">Agent Token</span>
+        <span class="mono" id="agent-id"></span>
       </div>
+      <div id="token-result" class="hidden">
+        <details>
+          <summary class="detail-summary">Agent Token (aa-agent+jwt)</summary>
+          <div class="token-display" id="agent-token-raw"></div>
+        </details>
+        <details>
+          <summary class="detail-summary">Decoded Payload</summary>
+          <div class="token-display" id="token-payload"></div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="authz-section" style="opacity: 0.4; pointer-events: none;">
+    <div class="card">
+      <h2 style="color: var(--text); font-weight: 600; font-size: 1rem;">Authorization Request</h2>
+
+      <label>Person Server (PS)</label>
+      <input type="url" id="ps-url" placeholder="https://ps.example">
+
+      <label>Scopes</label>
+      <div class="checkbox-group">
+        <label class="checkbox-label"><input type="checkbox" value="openid" checked> openid</label>
+        <label class="checkbox-label"><input type="checkbox" value="profile" checked> profile</label>
+        <label class="checkbox-label"><input type="checkbox" value="email"> email</label>
+        <label class="checkbox-label"><input type="checkbox" value="phone"> phone</label>
+      </div>
+
+      <details style="margin-bottom: 0.75rem;">
+        <summary class="detail-summary">Hints</summary>
+        <div style="margin-top: 0.5rem;">
+          <label>login_hint</label>
+          <input type="text" id="login-hint" placeholder="user@example.com">
+          <label>domain_hint</label>
+          <input type="text" id="domain-hint" placeholder="example.com">
+          <label>provider_hint</label>
+          <input type="text" id="provider-hint" placeholder="google">
+          <label>tenant</label>
+          <input type="text" id="tenant" placeholder="org-123">
+        </div>
+      </details>
+
+      <button id="authz-btn">Continue</button>
+    </div>
+  </div>
+
+  <div class="section hidden" id="log-section">
+    <div class="card">
+      <h2 style="color: var(--text); font-weight: 600; font-size: 1rem;">Protocol Log</h2>
+      <div id="protocol-log"></div>
     </div>
   </div>
 
@@ -149,322 +110,13 @@
       <h2 style="color: var(--text); font-weight: 600; font-size: 1rem;">Well-Known Endpoints</h2>
       <p style="font-size: 0.85rem;">
         <a href="/.well-known/aauth-agent.json">/.well-known/aauth-agent.json</a><br>
+        <a href="/.well-known/aauth-resource.json">/.well-known/aauth-resource.json</a><br>
         <a href="/.well-known/jwks.json">/.well-known/jwks.json</a>
       </p>
     </div>
   </div>
 
-  <script>
-    let sessionId = null
-
-    const adjectives = [
-      'able','aged','apt','arch','avid','bald','bare','big','blue','bold',
-      'born','brave','brief','bright','broad','brisk','calm','civic','clean','clear',
-      'close','cold','cool','crisp','curly','cute','damp','dark','dear','deep',
-      'dense','dim','dire','dry','dual','dull','dusk','dusty','eager','early',
-      'easy','edgy','elfin','elite','even','exact','extra','faded','fair','fast',
-      'fawn','few','fiery','final','fine','firm','first','fit','flat','flush',
-      'focal','fond','free','fresh','full','fuzzy','glad','glum','gold','gone',
-      'good','grand','gray','great','green','grim','grown','hairy','half','happy',
-      'hard','harsh','hazel','heavy','hex','high','hollow','hot','huge','human',
-      'humid','husky','icy','ideal','idle','inner','ionic','iron','ivory','jade',
-      'jolly','just','keen','kept','kind','known','lame','large','last','late',
-      'lazy','lean','left','level','light','limp','live','local','lofty','lone',
-      'long','lost','loud','loved','low','lucid','lunar','lusty','lyric','mad',
-      'magic','main','major','male','maple','meek','mere','merry','micro','mild',
-      'mini','mint','misty','modal','moist','mossy','moved','murky','mute','naive',
-      'naval','near','neat','new','next','nice','noble','north','novel','numb',
-      'oaken','oaky','oblong','odd','oily','old','olive','only','opal','open',
-      'opted','oral','outer','owned','oxide','paid','pale','past','peach','peppy',
-      'petty','pink','plain','plum','plump','polar','prime','proud','puce','pulpy',
-      'pure','pushy','quick','quiet','radio','rapid','rare','raw','ready','real',
-      'red','regal','rich','rigid','ripe','rocky','roomy','rosy','rough','round',
-      'royal','ruby','rude','rum','rusty','safe','salty','same','sandy','satin',
-      'scant','sharp','sheer','shiny','short','shy','silky','slim','slow','small',
-      'smart','smoky','snowy','snug','soft','solar','sole','solid','sonic','south',
-      'spare','spicy','steep','still','stock','stout','strong','sunny','super','sure',
-      'sweet','swift','tall','tame','tan','tart',
-    ]
-    const nouns = [
-      'ace','acorn','agate','aide','aisle','amber','angel','anvil','ape','apple',
-      'arch','aspen','atlas','badge','basin','bass','bay','beach','beam','bear',
-      'bee','bell','belt','bench','birch','bird','blade','blaze','bloom','bluff',
-      'board','bolt','bone','booth','bow','braid','brass','brick','brook','brush',
-      'bud','bulb','cape','cargo','cedar','chain','charm','chess','chief','chime',
-      'chip','chord','cider','clam','clay','cliff','cloud','clove','coast','cobra',
-      'coil','coin','coral','cork','cove','crane','crest','crow','crown','crush',
-      'cub','cup','curl','curve','dale','dawn','deer','delta','den','dew',
-      'dock','dome','dove','drake','drift','drum','dune','dust','eagle','edge',
-      'elm','ember','epoch','fable','fawn','feast','fern','fiber','fig','finch',
-      'fjord','flame','flare','flask','flint','float','flora','flute','foam','forge',
-      'fort','fox','frost','fruit','gale','gate','gem','ghost','glade','glen',
-      'globe','glove','goat','gorge','grain','grape','grove','guide','gull','gust',
-      'halo','hare','harp','haven','hawk','hazel','helm','herb','heron','hinge',
-      'holly','honey','hood','horn','horse','hull','hydra','inlet','iris','ivory',
-      'ivy','jade','jewel','joint','kelp','king','kite','knob','knoll','knot',
-      'lace','lake','lance','lark','latch','leaf','ledge','lever','light','lily',
-      'lime','linen','lodge','loom','lotus','lumen','lunar','lynx','lyric','mango',
-      'manor','maple','marsh','mask','mast','maze','medal','melon','mesa','mica',
-      'midge','mill','mint','mist','moat','moon','moose','morse','moss','mount',
-      'mouse','mulch','mural','myrrh','nest','node','north','notch','novel','oak',
-      'oasis','ocean','olive','onyx','orbit','orchid','otter','owl','oxide','palm',
-      'panda','panel','park','path','peach','pearl','petal','phase','pilot','pine',
-      'pixel','plaid','plane','plank','plaza','plum','plume','poise','polar','pond',
-      'poppy','port','prism','probe','pulse','quail','quake','quartz','quest','quill',
-      'raven','realm','reed','reef','ridge','river',
-    ]
-    const verbs = [
-      'act','add','aim','ask','bake','bank','base','beam','bend','bid',
-      'bind','bite','blow','blur','boil','bolt','bond','bore','bow','brew',
-      'burn','bury','buzz','call','camp','carve','cast','catch','chase','chime',
-      'chip','chop','clap','clasp','claw','clean','climb','cling','clip','close',
-      'coil','comb','cook','cope','copy','count','crack','craft','crawl','cross',
-      'crush','curl','curve','cut','dab','dance','dare','dart','dash','deal',
-      'delve','dent','dial','dig','dine','dip','dive','dock','dodge','dose',
-      'dot','draft','drain','drape','draw','dream','dress','drift','drill','drink',
-      'drive','drop','dry','duel','dump','dunk','dust','dwell','dye','earn',
-      'eat','edge','emit','empty','end','enter','erase','evade','exit','eye',
-      'face','fade','fall','fan','farm','fast','feast','feed','feel','fence',
-      'fetch','file','fill','find','fire','fish','fit','fix','flame','flash',
-      'flee','fling','flip','float','flock','flood','flow','fly','foam','focus',
-      'fold','forge','form','frame','free','frost','fuel','fuse','gain','gaze',
-      'get','give','glow','glue','gnaw','grab','grasp','grate','graze','grid',
-      'grind','grip','groan','groom','group','grow','guard','guess','guide','gulp',
-      'halt','hang','hatch','haul','heal','heap','hear','heat','hedge','help',
-      'herd','hike','hint','hold','honor','hook','hop','hover','howl','hum',
-      'hunt','hurl','inch','iron','jam','jog','join','joke','joust','judge',
-      'jump','keep','kick','kneel','knit','knock','knot','lace','land','lap',
-      'latch','launch','lay','lead','lean','leap','learn','lend','level','lift',
-      'light','limb','link','list','live','load','lock','log','look','loop',
-      'loom','lure','lurk','make','map','march','mark','mask','match','melt',
-      'mend','merge','mill','mind','mine','miss','mix','mold','mount','move',
-      'mow','muse','nail','name','nap','nest','nod','note','nudge','nurse',
-      'obey','orbit','own','pace','pack','paint',
-    ]
-
-    function generateAgentName() {
-      const adj = adjectives[Math.floor(Math.random() * adjectives.length)]
-      const noun = nouns[Math.floor(Math.random() * nouns.length)]
-      const verb = verbs[Math.floor(Math.random() * verbs.length)]
-      return `${adj}-${noun}-${verb}`
-    }
-
-    function getAgentName() {
-      let name = localStorage.getItem('aauth-agent-name')
-      if (!name) {
-        name = generateAgentName()
-        localStorage.setItem('aauth-agent-name', name)
-      }
-      return name
-    }
-
-    const agentName = getAgentName()
-    document.getElementById('agent-name').textContent = agentName
-
-    // Check for existing session on page load
-    const savedSession = localStorage.getItem('aauth-session-id')
-    if (savedSession) {
-      fetch('/session', {
-        headers: { 'X-Session-Id': savedSession },
-      }).then(res => res.json()).then(data => {
-        if (!data.valid) {
-          localStorage.removeItem('aauth-session-id')
-        } else {
-          sessionId = savedSession
-          const name = data.username || agentName
-          localStorage.setItem('aauth-agent-name', name)
-          document.getElementById('agent-name').textContent = name
-          setAuthenticated(name)
-          getAgentToken()
-        }
-      })
-    }
-
-    async function authenticate() {
-      // Try login first — if user has an existing passkey, the browser will offer it
-      try {
-        const optionsRes = await fetch('/webauthn/login/options', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        })
-        const options = await optionsRes.json()
-
-        const credential = await navigator.credentials.get({
-          publicKey: parseRequestOptions(options),
-          mediation: 'optional',
-        })
-
-        const verifyRes = await fetch('/webauthn/login/verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            response: serializeAssertion(credential),
-            challenge: options.challenge,
-          }),
-        })
-        const result = await verifyRes.json()
-
-        if (result.verified) {
-          sessionId = result.sessionId
-          localStorage.setItem('aauth-session-id', sessionId)
-          const recoveredName = result.username
-          if (recoveredName) {
-            localStorage.setItem('aauth-agent-name', recoveredName)
-            document.getElementById('agent-name').textContent = recoveredName
-          }
-          setAuthenticated(recoveredName || agentName)
-          await getAgentToken()
-          return
-        }
-      } catch (err) {
-        // No existing credential — fall through to registration
-        console.log('No existing passkey, registering new one')
-      }
-
-      // Register a new passkey
-      try {
-        const username = agentName
-        const optionsRes = await fetch('/webauthn/register/options', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username }),
-        })
-        const options = await optionsRes.json()
-
-        const credential = await navigator.credentials.create({ publicKey: parseCreationOptions(options) })
-
-        const verifyRes = await fetch('/webauthn/register/verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            response: serializeCredential(credential),
-            challenge: options.challenge,
-          }),
-        })
-        const result = await verifyRes.json()
-
-        if (result.verified) {
-          sessionId = result.sessionId
-          localStorage.setItem('aauth-session-id', sessionId)
-          setAuthenticated(username)
-          await getAgentToken()
-        }
-      } catch (err) {
-        console.error('Authentication failed:', err)
-      }
-    }
-
-    function setAuthenticated(username) {
-      document.getElementById('auth-status').textContent = 'Authenticated'
-      document.getElementById('auth-status').className = 'status authenticated'
-      document.getElementById('auth-form').classList.add('hidden')
-      document.getElementById('auth-info').classList.remove('hidden')
-      document.getElementById('auth-user').textContent = username
-      document.getElementById('agent-section').style.opacity = '1'
-      document.getElementById('agent-section').style.pointerEvents = 'auto'
-    }
-
-    async function getAgentToken() {
-      if (!sessionId) return
-
-      // Generate ephemeral Ed25519 key pair in the browser
-      const keyPair = await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify'])
-      const publicJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
-
-      const res = await fetch('/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Session-Id': sessionId,
-        },
-        body: JSON.stringify({ ephemeral_jwk: publicJwk, agent_local: agentName }),
-      })
-      const data = await res.json()
-
-      document.getElementById('token-result').classList.remove('hidden')
-      document.getElementById('agent-id').textContent = data.agent_id
-      document.getElementById('agent-token').textContent = data.agent_token
-
-      // Decode payload
-      const parts = data.agent_token.split('.')
-      const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
-      document.getElementById('token-payload').textContent = JSON.stringify(payload, null, 2)
-    }
-
-    // ── WebAuthn helpers ──
-
-    function base64urlToBuffer(str) {
-      const padded = str + '='.repeat((4 - (str.length % 4)) % 4)
-      const binary = atob(padded.replace(/-/g, '+').replace(/_/g, '/'))
-      const bytes = new Uint8Array(binary.length)
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-      return bytes.buffer
-    }
-
-    function bufferToBase64url(buffer) {
-      const bytes = new Uint8Array(buffer)
-      let binary = ''
-      for (const b of bytes) binary += String.fromCharCode(b)
-      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-    }
-
-    function parseCreationOptions(options) {
-      return {
-        ...options,
-        challenge: base64urlToBuffer(options.challenge),
-        user: {
-          ...options.user,
-          id: base64urlToBuffer(options.user.id),
-        },
-        excludeCredentials: (options.excludeCredentials || []).map(c => ({
-          ...c,
-          id: base64urlToBuffer(c.id),
-        })),
-      }
-    }
-
-    function parseRequestOptions(options) {
-      return {
-        ...options,
-        challenge: base64urlToBuffer(options.challenge),
-        allowCredentials: (options.allowCredentials || []).map(c => ({
-          ...c,
-          id: base64urlToBuffer(c.id),
-        })),
-      }
-    }
-
-    function serializeCredential(cred) {
-      return {
-        id: cred.id,
-        rawId: bufferToBase64url(cred.rawId),
-        type: cred.type,
-        response: {
-          clientDataJSON: bufferToBase64url(cred.response.clientDataJSON),
-          attestationObject: bufferToBase64url(cred.response.attestationObject),
-          transports: cred.response.getTransports?.() || [],
-        },
-        clientExtensionResults: cred.getClientExtensionResults(),
-        authenticatorAttachment: cred.authenticatorAttachment,
-      }
-    }
-
-    function serializeAssertion(cred) {
-      return {
-        id: cred.id,
-        rawId: bufferToBase64url(cred.rawId),
-        type: cred.type,
-        response: {
-          clientDataJSON: bufferToBase64url(cred.response.clientDataJSON),
-          authenticatorData: bufferToBase64url(cred.response.authenticatorData),
-          signature: bufferToBase64url(cred.response.signature),
-          userHandle: cred.response.userHandle ? bufferToBase64url(cred.response.userHandle) : null,
-        },
-        clientExtensionResults: cred.getClientExtensionResults(),
-        authenticatorAttachment: cred.authenticatorAttachment,
-      }
-    }
-  </script>
+  <script src="/app.js"></script>
+  <script src="/protocol.js"></script>
 </body>
 </html>
