@@ -1,5 +1,5 @@
 /
-  Content-Security-Policy: default-src 'self'; connect-src 'self' https:; script-src 'self' https://plausible.io; style-src 'self'; img-src 'self' data:
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https:; script-src 'self' https://plausible.io; style-src 'self' 'unsafe-inline'; img-src 'self' data:
 
 /index.html
-  Content-Security-Policy: default-src 'self'; connect-src 'self' https:; script-src 'self' https://plausible.io; style-src 'self'; img-src 'self' data:
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https:; script-src 'self' https://plausible.io; style-src 'self' 'unsafe-inline'; img-src 'self' data:
