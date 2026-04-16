@@ -1351,10 +1351,12 @@ ${renderJSON(body)}`;
       }, psRequestBody)
     );
     try {
+      const signingJwk = await crypto.subtle.exportKey("jwk", ephemeralKeyPair.publicKey);
       const psRes = await (0, import_httpsig.fetch)(tokenEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(psRequestBody),
+        signingKey: signingJwk,
         signingCryptoKey: ephemeralKeyPair.privateKey,
         signatureKey: { type: "jwt", jwt: agentToken },
         components: ["@method", "@authority", "@path", "signature-key"]

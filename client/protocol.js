@@ -184,11 +184,14 @@ async function startAuthorization() {
   // @hellocoop/httpsig. Components match the Wallet's REQUIRED_COMPONENTS
   // (svr/src/aauth/verify.js) — the library's DEFAULT_COMPONENTS_BODY also
   // includes content-type, which we omit here to keep signing minimal.
+  // signingKey: public JWK for alg detection; signingCryptoKey: actual signer.
   try {
+    const signingJwk = await crypto.subtle.exportKey('jwk', ephemeralKeyPair.publicKey)
     const psRes = await sigFetch(tokenEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(psRequestBody),
+      signingKey: signingJwk,
       signingCryptoKey: ephemeralKeyPair.privateKey,
       signatureKey: { type: 'jwt', jwt: agentToken },
       components: ['@method', '@authority', '@path', 'signature-key'],
