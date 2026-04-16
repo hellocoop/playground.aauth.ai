@@ -367,7 +367,18 @@ function startPolling(pollUrl, baseUrl, interactionStep) {
 
   pollInterval = setInterval(async () => {
     try {
-      const res = await fetch(absolutePollUrl)
+      // Polls MUST be signed (RFC 9421 HTTP Message Signatures) with the
+      // ephemeral key + agent-token Signature-Key, same as the POST to
+      // the PS token endpoint. Wallet returns 401 (missing Signature-Input)
+      // for unsigned polls.
+      const signingJwk = await crypto.subtle.exportKey('jwk', ephemeralKeyPair.publicKey)
+      const res = await sigFetch(absolutePollUrl, {
+        method: 'GET',
+        signingKey: signingJwk,
+        signingCryptoKey: ephemeralKeyPair.privateKey,
+        signatureKey: { type: 'jwt', jwt: agentToken },
+        components: ['@method', '@authority', '@path', 'signature-key'],
+      })
 
       if (res.status === 200) {
         clearInterval(pollInterval)

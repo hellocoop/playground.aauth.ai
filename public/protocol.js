@@ -3126,7 +3126,14 @@ ${renderJSON(body)}`;
     const absolutePollUrl = new URL(pollUrl, baseUrl).href;
     pollInterval = setInterval(async () => {
       try {
-        const res = await fetch(absolutePollUrl);
+        const signingJwk = await crypto.subtle.exportKey("jwk", ephemeralKeyPair.publicKey);
+        const res = await (0, import_httpsig.fetch)(absolutePollUrl, {
+          method: "GET",
+          signingKey: signingJwk,
+          signingCryptoKey: ephemeralKeyPair.privateKey,
+          signatureKey: { type: "jwt", jwt: agentToken },
+          components: ["@method", "@authority", "@path", "signature-key"]
+        });
         if (res.status === 200) {
           clearInterval(pollInterval);
           pollInterval = null;
