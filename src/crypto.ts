@@ -33,9 +33,12 @@ export async function importSigningKey(jwkJson: string): Promise<CryptoKey> {
 
 export async function getPublicJWK(jwkJson: string): Promise<JsonWebKey & { kid: string }> {
   const jwk = JSON.parse(jwkJson)
-  // Strip private key material — only return public components
-  const { d: _, ...publicJwk } = jwk
-  // Compute kid as thumbprint
+  // Strip private key material AND any private-half operational hints
+  // (key_ops: ["sign"], ext) that WebCrypto carries over when exporting
+  // the private JWK. Published JWKS keys are for verification only.
+  const { d: _d, key_ops: _ops, ext: _ext, ...rest } = jwk
+  const publicJwk = { ...rest, key_ops: ['verify'] }
+  // Compute kid as thumbprint of the required public members only
   const kid = await computeJwkThumbprint(publicJwk)
   return { ...publicJwk, kid }
 }

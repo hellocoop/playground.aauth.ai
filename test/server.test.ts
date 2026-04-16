@@ -104,6 +104,9 @@ describe('GET /.well-known/jwks.json', () => {
     expect(key.x).toBeDefined()
     expect(key.kid).toBeDefined()
     expect(key.d).toBeUndefined()
+    // Must declare verify (not sign) so strict verifiers like jose.importJWK accept it
+    expect(key.key_ops).toEqual(['verify'])
+    expect(key.ext).toBeUndefined()
   })
 })
 

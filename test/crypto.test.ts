@@ -132,6 +132,30 @@ describe('getPublicJWK', () => {
     } as JsonWebKey)
     expect(publicJwk.kid).toBe(expected)
   })
+
+  it('declares key_ops as ["verify"] (not the private-half "sign")', async () => {
+    // Regression test: WebCrypto exports private JWKs with key_ops: ["sign"];
+    // when stripped of `d` to make a "public" JWK, that op leaks through and
+    // breaks strict verifiers (e.g. jose.importJWK rejects with "Unsupported
+    // key usage for an Ed25519 key"). Public JWKS entries must declare verify.
+    const publicJwk = await getPublicJWK(signingKeyJson)
+    expect(publicJwk.key_ops).toEqual(['verify'])
+  })
+
+  it('omits the WebCrypto-internal "ext" flag', async () => {
+    const publicJwk = await getPublicJWK(signingKeyJson)
+    expect((publicJwk as any).ext).toBeUndefined()
+  })
+
+  it('produces a JWK that strict verifiers can import for verification', async () => {
+    // Simulate what jose.importJWK does: hand the JWK directly to WebCrypto
+    // with usage ['verify']. If key_ops conflicts, this throws.
+    const publicJwk = await getPublicJWK(signingKeyJson)
+    const { kid: _kid, ...importable } = publicJwk
+    await expect(
+      webcrypto.subtle.importKey('jwk', importable as JsonWebKey, { name: 'Ed25519' }, false, ['verify'])
+    ).resolves.toBeDefined()
+  })
 })
 
 describe('importSigningKey', () => {

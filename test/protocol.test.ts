@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-// protocol.js is loaded by the browser as a global script. Extract pure helpers
-// (parseInteractionHeader, decodeJWTPayloadBrowser) by evaluating just the
-// function declarations in a Node sandbox.
+// client/protocol.js is the source bundled by esbuild into public/protocol.js.
+// Extract pure helpers (parseInteractionHeader, decodeJWTPayloadBrowser) by
+// evaluating just the function declarations in a Node sandbox.
 function extractFn(name: string): Function {
   const source = readFileSync(
-    resolve(__dirname, '../public/protocol.js'),
+    resolve(__dirname, '../client/protocol.js'),
     'utf-8'
   )
   // Match `function name(...) { ... }` up to its matching closing brace at column 0.
