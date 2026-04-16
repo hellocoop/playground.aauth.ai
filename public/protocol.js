@@ -177,28 +177,42 @@ async function startAuthorization() {
     }, psRequestBody)
   )
 
-  // Call PS directly from browser
-  // TODO: Use @hellocoop/httpsig for signed fetch when library is updated
-  // For now, make unsigned call to demonstrate the flow
+  // Sign the PS token request per RFC 9421 (HTTP Message Signatures).
+  // Covered components match the Wallet's REQUIRED_COMPONENTS in svr/src/aauth/verify.js.
   try {
-    let psRes
-    if (typeof sigFetch === 'function') {
-      // @hellocoop/httpsig available
-      psRes = await sigFetch(tokenEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(psRequestBody),
-        signingKey: ephemeralKeyPair?.privateKey,
-        signatureKey: { type: 'jwt', jwt: agentToken },
-      })
-    } else {
-      // Fallback: unsigned request (for development/testing)
-      psRes = await fetch(tokenEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(psRequestBody),
-      })
-    }
+    const psUrl = new URL(tokenEndpoint)
+    const created = Math.floor(Date.now() / 1000)
+    const signatureKeyHeader = `sig=jwt;jwt="${agentToken}"`
+    const sigParams = `("@method" "@authority" "@path" "signature-key");created=${created}`
+    const signatureBase = [
+      `"@method": POST`,
+      `"@authority": ${psUrl.host}`,
+      `"@path": ${psUrl.pathname}`,
+      `"signature-key": ${signatureKeyHeader}`,
+      `"@signature-params": ${sigParams}`,
+    ].join('\n')
+
+    const sigBytes = new Uint8Array(
+      await crypto.subtle.sign(
+        { name: 'Ed25519' },
+        ephemeralKeyPair.privateKey,
+        new TextEncoder().encode(signatureBase),
+      ),
+    )
+    let binary = ''
+    for (const b of sigBytes) binary += String.fromCharCode(b)
+    const sigB64 = btoa(binary)
+
+    const psRes = await fetch(tokenEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Signature-Input': `sig=${sigParams}`,
+        'Signature': `sig=:${sigB64}:`,
+        'Signature-Key': signatureKeyHeader,
+      },
+      body: JSON.stringify(psRequestBody),
+    })
 
     // Capture response headers we care about
     const responseHeaders = {}
