@@ -1340,11 +1340,13 @@ ${renderJSON(body)}`;
     );
     const tokenEndpoint = authzData.ps_metadata.token_endpoint;
     const psRequestBody = { resource_token: authzData.resource_token, ...hints };
+    const capabilities = "interaction";
     addLogStep(
       "Calling Person Server...",
       "pending",
       formatRequest("POST", tokenEndpoint, {
         "Content-Type": "application/json",
+        "AAuth-Capabilities": capabilities,
         "Signature-Input": 'sig=("@method" "@authority" "@path" "signature-key");created=...',
         "Signature": "sig=:...:",
         "Signature-Key": `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`
@@ -1354,7 +1356,10 @@ ${renderJSON(body)}`;
       const signingJwk = await crypto.subtle.exportKey("jwk", ephemeralKeyPair.publicKey);
       const psRes = await (0, import_httpsig.fetch)(tokenEndpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "AAuth-Capabilities": capabilities
+        },
         body: JSON.stringify(psRequestBody),
         signingKey: signingJwk,
         signingCryptoKey: ephemeralKeyPair.privateKey,

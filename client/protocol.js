@@ -173,9 +173,17 @@ async function startAuthorization() {
   const tokenEndpoint = authzData.ps_metadata.token_endpoint
   const psRequestBody = { resource_token: authzData.resource_token, ...hints }
 
+  // Declare what we can do. The playground supports the interaction flow
+  // (renders the AAuth-Requirement code/QR and polls Location). Without
+  // this header the PS assumes no out-of-band channel to the user and
+  // fails closed with "user_unreachable" when the user has no registered
+  // mobile device.
+  const capabilities = 'interaction'
+
   addLogStep('Calling Person Server...', 'pending',
     formatRequest('POST', tokenEndpoint, {
       'Content-Type': 'application/json',
+      'AAuth-Capabilities': capabilities,
       'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
       'Signature': 'sig=:...:',
       'Signature-Key': `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`,
@@ -191,7 +199,10 @@ async function startAuthorization() {
     const signingJwk = await crypto.subtle.exportKey('jwk', ephemeralKeyPair.publicKey)
     const psRes = await sigFetch(tokenEndpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'AAuth-Capabilities': capabilities,
+      },
       body: JSON.stringify(psRequestBody),
       signingKey: signingJwk,
       signingCryptoKey: ephemeralKeyPair.privateKey,
