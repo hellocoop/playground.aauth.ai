@@ -100,9 +100,11 @@ function getHints() {
 // ── Main authorization flow ──
 
 async function startAuthorization() {
-  const psUrl = document.getElementById('ps-url').value.trim()
+  // PS selection is owned by app.js (radio presets + custom URL with
+  // localStorage persistence). It exposes getCurrentPS() on window.
+  const psUrl = (window.getCurrentPS?.() || '').trim()
   if (!psUrl) {
-    alert('Please enter a Person Server URL')
+    alert('Please choose or enter a Person Server URL')
     return
   }
 

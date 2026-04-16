@@ -69,8 +69,22 @@
     <fieldset class="section-box">
       <legend>Authorization Request</legend>
 
-      <label for="ps-url">Person Server (PS)</label>
-      <input type="url" id="ps-url" placeholder="https://ps.example">
+      <details id="ps-details" class="server-select" open>
+        <summary class="detail-summary">
+          <span>Person Server</span>
+          <span class="ps-current mono" id="ps-current"></span>
+        </summary>
+        <ul class="server-list" id="ps-list">
+          <li><label class="radio-label"><input type="radio" name="ps" value="https://issuer.hello-beta.net"> <span>https://issuer.hello-beta.net</span></label></li>
+          <li><label class="radio-label"><input type="radio" name="ps" value="https://issuer.hello.coop"> <span>https://issuer.hello.coop</span></label></li>
+          <li><label class="radio-label"><input type="radio" name="ps" value="https://issuer.hello-staging.net"> <span>https://issuer.hello-staging.net</span></label></li>
+          <li><label class="radio-label"><input type="radio" name="ps" value="https://issuer.hello-dev.net"> <span>https://issuer.hello-dev.net</span></label></li>
+          <li class="custom-row">
+            <label class="radio-label"><input type="radio" name="ps" value="custom" id="ps-custom-radio"></label>
+            <input type="url" id="ps-custom" placeholder="https://ps.example" autocomplete="off">
+          </li>
+        </ul>
+      </details>
 
       <label>Scopes</label>
       <div class="scope-grid">

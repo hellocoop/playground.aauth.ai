@@ -1276,9 +1276,9 @@ ${renderJSON(body)}`;
     return hints;
   }
   async function startAuthorization() {
-    const psUrl = document.getElementById("ps-url").value.trim();
+    const psUrl = (window.getCurrentPS?.() || "").trim();
     if (!psUrl) {
-      alert("Please enter a Person Server URL");
+      alert("Please choose or enter a Person Server URL");
       return;
     }
     clearLog();

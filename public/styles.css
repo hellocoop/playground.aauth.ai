@@ -113,6 +113,71 @@ a { color: var(--accent); }
   height: 1rem;
 }
 
+/* Server-select disclosure (PS picker, mirrors the playground.hello.dev AS UX) */
+.server-select { margin-bottom: 1rem; }
+.server-select > summary {
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+.server-select > summary::-webkit-details-marker { display: none; }
+.server-select > summary::before {
+  content: '\25B8'; /* ▸ */
+  display: inline-block;
+  transition: transform 0.15s;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.server-select[open] > summary::before { transform: rotate(90deg); }
+.server-select > summary:hover { color: var(--text); }
+.ps-current {
+  margin-left: auto;
+  color: var(--text);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 60%;
+}
+.server-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+.server-list li {
+  padding: 0.25rem 0;
+}
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--text);
+  cursor: pointer;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.radio-label input[type="radio"] {
+  accent-color: var(--accent);
+  width: 1rem;
+  height: 1rem;
+}
+.server-list .custom-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.server-list .custom-row input[type="url"] {
+  flex: 1;
+  margin-bottom: 0;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
 /* Protocol log */
 .log-step {
   border-left: 3px solid var(--border);

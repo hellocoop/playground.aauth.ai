@@ -455,6 +455,111 @@ function enableAuthzSection() {
   }
 }
 
+// ── Settings persistence ──
+// Mirrors the playground.hello.dev pattern: one localStorage key holds all
+// user-customizable settings (PS selection, scopes, hints) as JSON.
+
+const SETTINGS_KEY = 'aauth-playground-settings'
+const HINT_FIELDS = ['login-hint', 'domain-hint', 'provider-hint', 'tenant']
+const DEFAULT_PS = 'https://issuer.hello-beta.net'
+
+function loadSettings() {
+  let saved = {}
+  try {
+    saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}
+  } catch { /* ignore corrupt JSON */ }
+
+  // Restore PS selection
+  const psList = document.getElementById('ps-list')
+  if (psList) {
+    const psValue = saved.ps || DEFAULT_PS
+    const psCustom = saved.ps_custom || ''
+    document.getElementById('ps-custom').value = psCustom
+    const radios = psList.querySelectorAll('input[name="ps"]')
+    let matched = false
+    for (const r of radios) {
+      if (r.value === psValue) { r.checked = true; matched = true; break }
+    }
+    if (!matched) {
+      // Saved PS isn't a preset → treat as custom
+      const customRadio = document.getElementById('ps-custom-radio')
+      if (customRadio) customRadio.checked = true
+      if (psValue && psValue !== 'custom') {
+        document.getElementById('ps-custom').value = psValue
+      }
+    }
+    updatePSCurrent()
+  }
+
+  // Restore scope checkboxes (if persisted; otherwise leave HTML defaults)
+  if (Array.isArray(saved.scopes)) {
+    const set = new Set(saved.scopes)
+    const boxes = document.querySelectorAll('#authz-section input[type="checkbox"]')
+    for (const b of boxes) {
+      if (b.disabled) continue // openid stays checked regardless
+      b.checked = set.has(b.value)
+    }
+  }
+
+  // Restore hint inputs
+  if (saved.hints && typeof saved.hints === 'object') {
+    for (const f of HINT_FIELDS) {
+      const el = document.getElementById(f)
+      if (el && typeof saved.hints[f] === 'string') el.value = saved.hints[f]
+    }
+  }
+}
+
+function saveSettings() {
+  const psRadio = document.querySelector('#ps-list input[name="ps"]:checked')
+  const psCustom = document.getElementById('ps-custom')?.value?.trim() || ''
+  const ps = psRadio ? psRadio.value : DEFAULT_PS
+
+  const scopes = Array.from(
+    document.querySelectorAll('#authz-section input[type="checkbox"]:checked')
+  ).map(b => b.value)
+
+  const hints = {}
+  for (const f of HINT_FIELDS) {
+    const v = document.getElementById(f)?.value?.trim()
+    if (v) hints[f] = v
+  }
+
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ps, ps_custom: psCustom, scopes, hints }))
+}
+
+// Returns the URL the user has currently chosen for the PS.
+// Used by client/protocol.js (exposed via window for esbuild-bundled code).
+function getCurrentPS() {
+  const psRadio = document.querySelector('#ps-list input[name="ps"]:checked')
+  if (!psRadio) return ''
+  if (psRadio.value === 'custom') {
+    return document.getElementById('ps-custom')?.value?.trim() || ''
+  }
+  return psRadio.value
+}
+window.getCurrentPS = getCurrentPS
+
+// Show the active PS URL in the <summary> when collapsed.
+function updatePSCurrent() {
+  const el = document.getElementById('ps-current')
+  if (el) el.textContent = getCurrentPS() || '(none selected)'
+}
+
+function wireSettingsAutosave() {
+  const authz = document.getElementById('authz-section')
+  if (!authz) return
+  // Any input/change inside the authz section saves and refreshes the summary.
+  authz.addEventListener('change', () => { saveSettings(); updatePSCurrent() })
+  authz.addEventListener('input', () => { saveSettings(); updatePSCurrent() })
+  // Typing in the custom URL field implicitly selects the custom radio.
+  const customInput = document.getElementById('ps-custom')
+  const customRadio = document.getElementById('ps-custom-radio')
+  if (customInput && customRadio) {
+    customInput.addEventListener('focus', () => { customRadio.checked = true; saveSettings(); updatePSCurrent() })
+  }
+}
+
 // ── Initialization ──
 
 const agentName = getAgentName()
@@ -469,6 +574,10 @@ if (localStorage.getItem('aauth-has-passkey')) {
 
 // Wire up the auth button
 document.getElementById('auth-btn').addEventListener('click', authenticate)
+
+// Restore PS / scopes / hints from localStorage and start auto-saving on edit
+loadSettings()
+wireSettingsAutosave()
 
 // Check for existing session on page load
 const savedSession = localStorage.getItem('aauth-session-id')
