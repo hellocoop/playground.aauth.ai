@@ -613,22 +613,6 @@ document.addEventListener('click', (e) => {
 loadSettings()
 wireSettingsAutosave()
 
-// Debug: `?debug=authed` or `?debug=interaction` force the authenticated UI
-// state without a real session. UI-only — backend calls will fail.
-const debugMode = new URLSearchParams(location.search).get('debug')
-if (debugMode === 'authed' || debugMode === 'interaction' || debugMode === 'approved') {
-  const sampleAgentId = 'aauth:merry-glen-fan@playground.aauth.dev'
-  const sampleToken =
-    'eyJhbGciOiJFZERTQSIsInR5cCI6ImFhLWFnZW50K2p3dCIsImtpZCI6IlJlUERyMnU0aEdkRmo0NE8zRTZxMmFjSUpnNW1tM1lJWklMdTBKZ1o1Wm8ifQ.' +
-    'eyJpc3MiOiJodHRwczovL3BsYXlncm91bmQuYWF1dGguZGV2IiwiZHdrIjoiYWF1dGgtYWdlbnQuanNvbiIsInN1YiI6ImFhdXRoOm1lcnJ5LWdsZW4tZmFuQHBsYXlncm91bmQuYWF1dGguZGV2IiwianRpIjoiSDREUGprSmVBNVNURUxOM3NBTXZGdyIsImNuZiI6eyJqd2siOnsiYWxnIjoiRWQyNTUxOSIsImNydiI6IkVkMjU1MTkiLCJleHQiOnRydWUsImtleV9vcHMiOlsidmVyaWZ5Il0sImt0eSI6Ik9LUCIsIngiOiJPSVBHWDV3NWZoYmJ5YlpVZkszbWVzMDBXNGNUQkp6SHcxSWdlS1FWQzhRIn19LCJpYXQiOjE3NzY0MzQ5NzgsImV4cCI6MTc3NjQzODU3OH0.' +
-    'CyWla6scttD-IPnUYDQKEBFDaovMMOFdp_4aq_aLgLn6T4oxit6SrWG-Pp6oG7LkB1TeB4jxlbXQIXWpXVTQBA'
-  localStorage.setItem('aauth-agent-name', 'merry-glen-fan')
-  document.getElementById('agent-name').textContent = 'merry-glen-fan'
-  setAuthenticated('merry-glen-fan')
-  displayAgentToken({ agent_token: sampleToken, agent_id: sampleAgentId })
-  enableAuthzSection()
-}
-
 // Check for existing session on page load
 const savedSession = localStorage.getItem('aauth-session-id')
 if (savedSession) {
