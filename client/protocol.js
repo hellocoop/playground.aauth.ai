@@ -64,7 +64,7 @@ function addLogStep(label, status, content) {
   // Let layout settle (opening <details>, images, etc) before scrolling,
   // otherwise `scrollIntoView` can target the pre-expansion position.
   requestAnimationFrame(() => {
-    step.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    step.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
   return step
 }

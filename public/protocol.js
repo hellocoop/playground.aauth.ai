@@ -2864,7 +2864,7 @@
     step.appendChild(body);
     log.appendChild(step);
     requestAnimationFrame(() => {
-      step.scrollIntoView({ behavior: "smooth", block: "end" });
+      step.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     return step;
   }
