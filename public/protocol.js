@@ -3209,7 +3209,7 @@ ${renderJSON(body)}`;
           addLogStep(
             "Authorization Denied",
             "error",
-            formatResponse(403, null, await res.json().catch(() => null))
+            formatResponse(403, null, await res.json().catch(() => null)) + anotherRequestButton()
           );
         } else if (res.status === 408) {
           clearInterval(pollInterval);
@@ -3219,7 +3219,7 @@ ${renderJSON(body)}`;
           addLogStep(
             "Authorization Timed Out",
             "error",
-            formatResponse(408, null, null)
+            formatResponse(408, null, null) + anotherRequestButton()
           );
         }
       } catch (err) {

@@ -475,14 +475,16 @@ function startPolling(pollUrl, baseUrl, interactionStep) {
         clearPendingInteraction()
         resolveStep(interactionStep, 'error', 'Interaction Denied')
         addLogStep('Authorization Denied', 'error',
-          formatResponse(403, null, await res.json().catch(() => null)))
+          formatResponse(403, null, await res.json().catch(() => null)) +
+          anotherRequestButton())
       } else if (res.status === 408) {
         clearInterval(pollInterval)
         pollInterval = null
         clearPendingInteraction()
         resolveStep(interactionStep, 'error', 'Interaction Timed Out')
         addLogStep('Authorization Timed Out', 'error',
-          formatResponse(408, null, null))
+          formatResponse(408, null, null) +
+          anotherRequestButton())
       }
       // 202 = still pending, keep polling
     } catch (err) {
