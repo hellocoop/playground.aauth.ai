@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
   <title>AAuth Playground</title>
   <meta name="description" content="Interactive in-browser demo of AAuth — signed requests, agent identity, and access modes." />
   <meta property="og:type" content="website" />
@@ -24,15 +25,30 @@
   <script src="/plausible-init.js"></script>
 </head>
 <body>
-  <h1>AAuth Playground</h1>
-  <h2>Reference agent server &mdash; <a href="https://aauth.dev">aauth.dev</a></h2>
+  <header class="site-header">
+    <div class="header-side header-left">
+      <a href="https://aauth.dev" class="ext-link" target="_blank" rel="noopener">aauth.dev</a>
+    </div>
+    <div class="header-center">
+      <span class="brand">
+        <svg width="60" height="19" viewBox="0 0 234 76" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M201.488 0V75H187.426V0H201.488ZM199.486 46.7285H195.629C195.661 43.0501 196.15 39.6647 197.094 36.5723C198.038 33.4473 199.389 30.7454 201.146 28.4668C202.904 26.1556 205.004 24.3652 207.445 23.0957C209.919 21.8262 212.654 21.1914 215.648 21.1914C218.253 21.1914 220.613 21.5658 222.729 22.3145C224.877 23.0306 226.716 24.2025 228.246 25.8301C229.809 27.4251 231.013 29.5247 231.859 32.1289C232.706 34.7331 233.129 37.8906 233.129 41.6016V75H218.969V41.5039C218.969 39.1602 218.627 37.321 217.943 35.9863C217.292 34.6191 216.332 33.6589 215.062 33.1055C213.826 32.5195 212.296 32.2266 210.473 32.2266C208.454 32.2266 206.729 32.6009 205.297 33.3496C203.897 34.0983 202.774 35.14 201.928 36.4746C201.081 37.7767 200.463 39.3066 200.072 41.0645C199.682 42.8223 199.486 44.7103 199.486 46.7285Z" fill="#277346"/>
+          <path d="M179.76 22.1699V32.1309H148.998V22.1699H179.76ZM156.615 9.13281H170.678V59.084C170.678 60.6139 170.873 61.7858 171.264 62.5996C171.687 63.4134 172.305 63.9831 173.119 64.3086C173.933 64.6016 174.958 64.748 176.195 64.748C177.074 64.748 177.855 64.7155 178.539 64.6504C179.255 64.5527 179.857 64.4551 180.346 64.3574L180.395 74.709C179.19 75.0996 177.888 75.4089 176.488 75.6367C175.089 75.8646 173.542 75.9785 171.85 75.9785C168.757 75.9785 166.055 75.474 163.744 74.4648C161.465 73.4232 159.708 71.763 158.471 69.4844C157.234 67.2057 156.615 64.2109 156.615 60.5V9.13281Z" fill="#277346"/>
+          <path d="M129.076 62.3535V22.168H143.139V75H129.906L129.076 62.3535ZM130.639 51.5137L134.789 51.416C134.789 54.9316 134.382 58.2031 133.568 61.2305C132.755 64.2253 131.534 66.8294 129.906 69.043C128.279 71.224 126.228 72.9329 123.754 74.1699C121.28 75.3743 118.367 75.9766 115.014 75.9766C112.442 75.9766 110.066 75.6185 107.885 74.9023C105.736 74.1536 103.881 72.998 102.318 71.4355C100.788 69.8405 99.584 67.806 98.7051 65.332C97.8587 62.8255 97.4355 59.8145 97.4355 56.2988V22.168H111.498V56.3965C111.498 57.959 111.677 59.2773 112.035 60.3516C112.426 61.4258 112.963 62.3047 113.646 62.9883C114.33 63.6719 115.128 64.1602 116.039 64.4531C116.983 64.7461 118.025 64.8926 119.164 64.8926C122.061 64.8926 124.34 64.3066 126 63.1348C127.693 61.9629 128.881 60.3678 129.564 58.3496C130.281 56.2988 130.639 54.0202 130.639 51.5137Z" fill="#277346"/>
+          <path d="M60.9121 16.0645L41.5762 75H26L52.416 3.90625H62.3281L60.9121 16.0645ZM76.9766 75L57.5918 16.0645L56.0293 3.90625H66.0391L92.6016 75H76.9766ZM76.0977 48.5352V60.0098H38.5488V48.5352H76.0977Z" fill="#277346"/>
+          <path d="M34.9121 16.0645L15.5762 75H0L26.416 3.90625H36.3281L34.9121 16.0645ZM50.9766 75L31.5918 16.0645L30.0293 3.90625H40.0391L66.6016 75H50.9766ZM50.0977 48.5352V60.0098H12.5488V48.5352H50.0977Z" fill="#40D97B"/>
+        </svg>
+        <span>Playground</span>
+      </span>
+    </div>
+    <div class="header-side header-right"></div>
+  </header>
+  <main class="container">
 
-  <div class="section">
-    <div class="card" id="auth-card" data-test="auth-card">
-      <div class="row">
-        <span>Authentication</span>
-        <span class="status unauthenticated" id="auth-status">Not authenticated</span>
-      </div>
+  <div class="section section-with-status">
+    <span class="status unauthenticated section-status" id="auth-status">Not authenticated</span>
+    <fieldset class="section-box" id="auth-card" data-test="auth-card">
+      <legend>Authentication</legend>
       <div id="auth-form">
         <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 0.5rem;">Your agent identifier</p>
         <p style="font-family: 'SF Mono', 'Fira Code', monospace; font-size: 1rem; margin-bottom: 0.75rem;" id="agent-name"></p>
@@ -43,42 +59,65 @@
       <div id="auth-info" class="hidden">
         <p>Authenticated as <strong id="auth-user"></strong></p>
       </div>
-    </div>
-  </div>
-
-  <div class="section" id="agent-section" style="opacity: 0.4; pointer-events: none;">
-    <div class="card">
-      <div class="row">
-        <span style="font-weight: 600;">Agent Token</span>
-        <span class="mono" id="agent-id"></span>
-      </div>
-      <div id="token-result" class="hidden">
-        <details>
-          <summary class="detail-summary">Agent Token (aa-agent+jwt)</summary>
-          <div class="token-display" id="agent-token-raw"></div>
+      <div id="token-section" class="disabled">
+        <div class="hidden" id="agent-id-row" style="margin-top: 0.75rem;">
+          <label>Agent Token</label>
+          <div class="readonly-field">
+            <span class="readonly-field-text" id="agent-id"></span>
+            <button class="copy-btn" type="button" data-copy-target="#agent-id" aria-label="Copy"></button>
+          </div>
+        </div>
+        <details class="section-group">
+          <summary class="section-heading">
+            <span>Agent Token (aa-agent+jwt)</span>
+            <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+          </summary>
+          <div class="token-wrap">
+            <button class="copy-btn copy-btn-float" type="button" data-copy-target="#agent-token-raw" aria-label="Copy"></button>
+            <div class="token-display" id="agent-token-raw"></div>
+          </div>
         </details>
-        <details>
-          <summary class="detail-summary">Decoded Payload</summary>
-          <div class="token-display" id="token-payload"></div>
+        <details class="section-group">
+          <summary class="section-heading">
+            <span>Decoded Payload</span>
+            <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+          </summary>
+          <div class="token-wrap">
+            <button class="copy-btn copy-btn-float" type="button" data-copy-target="#token-payload" aria-label="Copy"></button>
+            <div class="token-display" id="token-payload"></div>
+          </div>
         </details>
       </div>
-    </div>
+    </fieldset>
   </div>
 
   <div class="section" id="authz-section" style="opacity: 0.4; pointer-events: none;">
     <fieldset class="section-box">
       <legend>Authorization Request</legend>
 
-      <details id="ps-details" class="server-select" open>
-        <summary class="detail-summary">
+      <details id="ps-details" class="section-group" open>
+        <summary class="section-heading">
           <span>Person Server</span>
-          <span class="ps-current mono" id="ps-current"></span>
+          <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+          <span class="ps-current mono hidden" id="ps-current"></span>
         </summary>
         <ul class="server-list" id="ps-list">
-          <li><label class="radio-label"><input type="radio" name="ps" value="https://issuer.hello-beta.net"> <span>https://issuer.hello-beta.net</span></label></li>
-          <li><label class="radio-label"><input type="radio" name="ps" value="https://issuer.hello.coop"> <span>https://issuer.hello.coop</span></label></li>
-          <li><label class="radio-label"><input type="radio" name="ps" value="https://issuer.hello-staging.net"> <span>https://issuer.hello-staging.net</span></label></li>
-          <li><label class="radio-label"><input type="radio" name="ps" value="https://issuer.hello-dev.net"> <span>https://issuer.hello-dev.net</span></label></li>
+          <li>
+            <label class="radio-label"><input type="radio" name="ps" value="https://issuer.hello-beta.net"> <span>https://issuer.hello-beta.net</span></label>
+            <button class="copy-btn" type="button" data-copy="https://issuer.hello-beta.net" aria-label="Copy"></button>
+          </li>
+          <li>
+            <label class="radio-label"><input type="radio" name="ps" value="https://issuer.hello.coop"> <span>https://issuer.hello.coop</span></label>
+            <button class="copy-btn" type="button" data-copy="https://issuer.hello.coop" aria-label="Copy"></button>
+          </li>
+          <li>
+            <label class="radio-label"><input type="radio" name="ps" value="https://issuer.hello-staging.net"> <span>https://issuer.hello-staging.net</span></label>
+            <button class="copy-btn" type="button" data-copy="https://issuer.hello-staging.net" aria-label="Copy"></button>
+          </li>
+          <li>
+            <label class="radio-label"><input type="radio" name="ps" value="https://issuer.hello-dev.net"> <span>https://issuer.hello-dev.net</span></label>
+            <button class="copy-btn" type="button" data-copy="https://issuer.hello-dev.net" aria-label="Copy"></button>
+          </li>
           <li class="custom-row">
             <label class="radio-label"><input type="radio" name="ps" value="custom" id="ps-custom-radio"></label>
             <input type="url" id="ps-custom" placeholder="https://ps.example" autocomplete="off">
@@ -86,8 +125,12 @@
         </ul>
       </details>
 
-      <label>Scopes</label>
-      <div class="scope-grid">
+      <details class="section-group" open>
+        <summary class="section-heading">
+          <span>Scopes</span>
+          <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+        </summary>
+        <div class="scope-grid">
         <label class="checkbox-label"><input type="checkbox" value="openid" checked disabled> <span>openid <span class="scope-required">*</span></span></label>
         <label class="checkbox-label"><input type="checkbox" value="profile" checked> <span>profile</span></label>
         <label class="checkbox-label"><input type="checkbox" value="name"> <span>name</span></label>
@@ -102,12 +145,16 @@
         <label class="checkbox-label"><input type="checkbox" value="twitter"> <span>twitter</span></label>
         <label class="checkbox-label"><input type="checkbox" value="github"> <span>github</span></label>
         <label class="checkbox-label"><input type="checkbox" value="gitlab"> <span>gitlab</span></label>
-        <label class="checkbox-label"><input type="checkbox" value="bound_key"> <span>bound_key <span class="scope-experimental" title="experimental">&#x1F9EA;</span></span></label>
-        <label class="checkbox-label"><input type="checkbox" value="offline_access"> <span>offline_access <span class="scope-experimental" title="experimental">&#x1F9EA;</span></span></label>
-      </div>
+        <label class="checkbox-label"><input type="checkbox" value="bound_key"> <span>bound_key <span class="scope-experimental" title="Experimental" aria-label="Experimental"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M10.5 3.798v5.02a3 3 0 0 1-.879 2.121l-2.377 2.377a9.845 9.845 0 0 1 5.091 1.013 8.315 8.315 0 0 0 5.713.636l.285-.071-3.954-3.955a3 3 0 0 1-.879-2.121v-5.02a23.614 23.614 0 0 0-3 0Zm4.5.138a.75.75 0 0 0 .093-1.495A24.837 24.837 0 0 0 12 2.25a25.048 25.048 0 0 0-3.093.191A.75.75 0 0 0 9 3.936v4.882a1.5 1.5 0 0 1-.44 1.06l-6.293 6.294c-1.62 1.621-.903 4.475 1.471 4.88 2.686.46 5.447.698 8.262.698 2.816 0 5.576-.239 8.262-.697 2.373-.406 3.092-3.26 1.47-4.881L15.44 9.879A1.5 1.5 0 0 1 15 8.818V3.936Z" clip-rule="evenodd"/></svg></span></span></label>
+        <label class="checkbox-label"><input type="checkbox" value="offline_access"> <span>offline_access <span class="scope-experimental" title="Experimental" aria-label="Experimental"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M10.5 3.798v5.02a3 3 0 0 1-.879 2.121l-2.377 2.377a9.845 9.845 0 0 1 5.091 1.013 8.315 8.315 0 0 0 5.713.636l.285-.071-3.954-3.955a3 3 0 0 1-.879-2.121v-5.02a23.614 23.614 0 0 0-3 0Zm4.5.138a.75.75 0 0 0 .093-1.495A24.837 24.837 0 0 0 12 2.25a25.048 25.048 0 0 0-3.093.191A.75.75 0 0 0 9 3.936v4.882a1.5 1.5 0 0 1-.44 1.06l-6.293 6.294c-1.62 1.621-.903 4.475 1.471 4.88 2.686.46 5.447.698 8.262.698 2.816 0 5.576-.239 8.262-.697 2.373-.406 3.092-3.26 1.47-4.881L15.44 9.879A1.5 1.5 0 0 1 15 8.818V3.936Z" clip-rule="evenodd"/></svg></span></span></label>
+        </div>
+      </details>
 
-      <details style="margin-bottom: 0.75rem;">
-        <summary class="detail-summary">Hints</summary>
+      <details class="section-group">
+        <summary class="section-heading">
+          <span>Hints</span>
+          <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+        </summary>
         <div style="margin-top: 0.5rem;">
           <label>login_hint</label>
           <input type="text" id="login-hint" placeholder="user@example.com">
@@ -125,23 +172,24 @@
   </div>
 
   <div class="section hidden" id="log-section">
-    <div class="card">
-      <h2 style="color: var(--text); font-weight: 600; font-size: 1rem;">Protocol Log</h2>
+    <fieldset class="section-box">
+      <legend>Protocol Log</legend>
       <div id="protocol-log"></div>
-    </div>
+    </fieldset>
   </div>
 
   <div class="section">
-    <div class="card">
-      <h2 style="color: var(--text); font-weight: 600; font-size: 1rem;">Well-Known Endpoints</h2>
+    <fieldset class="section-box">
+      <legend>Well-Known Endpoints</legend>
       <p style="font-size: 0.85rem;">
         <a href="/.well-known/aauth-agent.json">/.well-known/aauth-agent.json</a><br>
         <a href="/.well-known/aauth-resource.json">/.well-known/aauth-resource.json</a><br>
         <a href="/.well-known/jwks.json">/.well-known/jwks.json</a>
       </p>
-    </div>
+    </fieldset>
   </div>
 
+  </main>
   <script src="/app.js"></script>
   <script src="/protocol.js"></script>
 </body>

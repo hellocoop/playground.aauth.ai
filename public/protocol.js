@@ -2838,69 +2838,82 @@
   function statusIndicator(status) {
     return status === "success" ? "\u2713" : status === "pending" ? "\u2026" : "\u2717";
   }
+  var CHEVRON_SVG = `<svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>`;
+  var __copyIdCounter = 0;
+  function nextCopyId() {
+    return `copy-tgt-${++__copyIdCounter}`;
+  }
   function addLogStep(label, status, content) {
     const log = document.getElementById("protocol-log");
     const step = document.createElement("details");
-    step.className = `log-step ${status}`;
+    step.className = `log-step section-group ${status}`;
     step.open = true;
     const summary = document.createElement("summary");
-    summary.innerHTML = `<span class="step-label">${statusIndicator(status)} ${label}</span>`;
+    summary.className = "section-heading";
+    summary.innerHTML = `<span class="step-label">${statusIndicator(status)} ${label}</span>${CHEVRON_SVG}`;
     step.appendChild(summary);
     const body = document.createElement("div");
     body.style.marginTop = "0.5rem";
     body.innerHTML = content;
     step.appendChild(body);
     log.appendChild(step);
-    step.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    requestAnimationFrame(() => {
+      step.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
     return step;
   }
   function resolveStep(step, status, label) {
     if (!step) return;
-    step.className = `log-step ${status}`;
+    step.className = `log-step section-group ${status}`;
     const labelSpan = step.querySelector(".step-label");
     if (labelSpan) labelSpan.textContent = `${statusIndicator(status)} ${label}`;
   }
+  function tokenWrap(innerHtml, extraClass = "") {
+    const id = nextCopyId();
+    return `<div class="token-wrap">
+    <button class="copy-btn copy-btn-float" type="button" data-copy-target="#${id}" aria-label="Copy"></button>
+    <div class="token-display${extraClass ? " " + extraClass : ""}" id="${id}">${innerHtml}</div>
+  </div>`;
+  }
   function formatRequest(method, url, headers, body) {
-    let html = `<div class="token-display">${escapeHtml(method)} ${escapeHtml(url)}
+    let inner = `${escapeHtml(method)} ${escapeHtml(url)}
 `;
     if (headers) {
       for (const [k, v] of Object.entries(headers)) {
-        html += `${escapeHtml(k)}: ${escapeHtml(v)}
+        inner += `${escapeHtml(k)}: ${escapeHtml(v)}
 `;
       }
     }
     if (body) {
-      html += `
+      inner += `
 ${renderJSON(body)}`;
     }
-    html += "</div>";
-    return html;
+    return tokenWrap(inner);
   }
   function formatResponse(status, headers, body) {
-    let html = `<div class="token-display">HTTP ${status}
+    let inner = `HTTP ${status}
 `;
     if (headers) {
       for (const [k, v] of Object.entries(headers)) {
-        html += `${escapeHtml(k)}: ${escapeHtml(v)}
+        inner += `${escapeHtml(k)}: ${escapeHtml(v)}
 `;
       }
     }
     if (body) {
-      html += `
+      inner += `
 ${renderJSON(body)}`;
     }
-    html += "</div>";
-    return html;
+    return tokenWrap(inner);
   }
   function formatToken(label, token, decoded) {
     return `
-    <details>
-      <summary class="detail-summary">${escapeHtml(label)}</summary>
-      <div class="token-display encoded">${renderEncodedJWT(token)}</div>
+    <details class="section-group">
+      <summary class="section-heading"><span>${escapeHtml(label)}</span>${CHEVRON_SVG}</summary>
+      ${tokenWrap(renderEncodedJWT(token), "encoded")}
     </details>
-    <details open>
-      <summary class="detail-summary">Decoded</summary>
-      <div class="token-display">${renderJSON(decoded)}</div>
+    <details class="section-group" open>
+      <summary class="section-heading"><span>Decoded</span>${CHEVRON_SVG}</summary>
+      ${tokenWrap(renderJSON(decoded))}
     </details>
   `;
   }

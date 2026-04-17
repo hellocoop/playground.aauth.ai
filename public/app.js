@@ -368,17 +368,16 @@ async function authenticate() {
 
 function setAuthenticated(username) {
   document.getElementById('auth-status').textContent = 'Authenticated'
-  document.getElementById('auth-status').className = 'status authenticated'
+  document.getElementById('auth-status').className = 'status authenticated section-status'
   document.getElementById('auth-form').classList.add('hidden')
   document.getElementById('auth-info').classList.remove('hidden')
   document.getElementById('auth-user').textContent = username
-  document.getElementById('agent-section').style.opacity = '1'
-  document.getElementById('agent-section').style.pointerEvents = 'auto'
+  document.getElementById('token-section').classList.remove('disabled')
+  document.getElementById('agent-id-row').classList.remove('hidden')
 }
 
 function displayAgentToken(data) {
   const payload = decodeJWTPayload(data.agent_token)
-  document.getElementById('token-result').classList.remove('hidden')
   document.getElementById('agent-id').textContent = data.agent_id
   const raw = document.getElementById('agent-token-raw')
   raw.classList.add('encoded')
@@ -575,9 +574,58 @@ if (localStorage.getItem('aauth-has-passkey')) {
 // Wire up the auth button
 document.getElementById('auth-btn').addEventListener('click', authenticate)
 
+// Copy button SVG icons — inlined for crisp rendering at any scale.
+const COPY_ICON_HTML = `
+  <svg class="copy-icon-copy" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+  <svg class="copy-icon-check" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+`
+function renderCopyIcons(root = document) {
+  for (const btn of root.querySelectorAll('.copy-btn:empty')) {
+    btn.innerHTML = COPY_ICON_HTML
+  }
+}
+renderCopyIcons()
+new MutationObserver(() => renderCopyIcons()).observe(document.body, { childList: true, subtree: true })
+
+// Copy buttons — delegated. `data-copy` copies a literal string; `data-copy-target`
+// copies the textContent of the matched element. Toggles a 500ms "copied" state.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.copy-btn')
+  if (!btn) return
+  const literal = btn.dataset.copy
+  const target = btn.dataset.copyTarget
+  const text = literal != null
+    ? literal
+    : (target ? (() => {
+        const el = document.querySelector(target)
+        if (!el) return ''
+        return 'value' in el ? el.value : el.textContent
+      })() : '')
+  if (!text) return
+  navigator.clipboard.writeText(text).then(() => {
+    btn.classList.add('copied')
+    setTimeout(() => btn.classList.remove('copied'), 500)
+  })
+})
+
 // Restore PS / scopes / hints from localStorage and start auto-saving on edit
 loadSettings()
 wireSettingsAutosave()
+
+// Debug: `?debug=authed` forces the authenticated UI state without a real session.
+// UI-only — no token is minted, backend requests will fail.
+if (new URLSearchParams(location.search).get('debug') === 'authed') {
+  const sampleAgentId = 'aauth:merry-glen-fan@playground.aauth.dev'
+  const sampleToken =
+    'eyJhbGciOiJFZERTQSIsInR5cCI6ImFhLWFnZW50K2p3dCIsImtpZCI6IlJlUERyMnU0aEdkRmo0NE8zRTZxMmFjSUpnNW1tM1lJWklMdTBKZ1o1Wm8ifQ.' +
+    'eyJpc3MiOiJodHRwczovL3BsYXlncm91bmQuYWF1dGguZGV2IiwiZHdrIjoiYWF1dGgtYWdlbnQuanNvbiIsInN1YiI6ImFhdXRoOm1lcnJ5LWdsZW4tZmFuQHBsYXlncm91bmQuYWF1dGguZGV2IiwianRpIjoiSDREUGprSmVBNVNURUxOM3NBTXZGdyIsImNuZiI6eyJqd2siOnsiYWxnIjoiRWQyNTUxOSIsImNydiI6IkVkMjU1MTkiLCJleHQiOnRydWUsImtleV9vcHMiOlsidmVyaWZ5Il0sImt0eSI6Ik9LUCIsIngiOiJPSVBHWDV3NWZoYmJ5YlpVZkszbWVzMDBXNGNUQkp6SHcxSWdlS1FWQzhRIn19LCJpYXQiOjE3NzY0MzQ5NzgsImV4cCI6MTc3NjQzODU3OH0.' +
+    'CyWla6scttD-IPnUYDQKEBFDaovMMOFdp_4aq_aLgLn6T4oxit6SrWG-Pp6oG7LkB1TeB4jxlbXQIXWpXVTQBA'
+  localStorage.setItem('aauth-agent-name', 'merry-glen-fan')
+  document.getElementById('agent-name').textContent = 'merry-glen-fan'
+  setAuthenticated('merry-glen-fan')
+  displayAgentToken({ agent_token: sampleToken, agent_id: sampleAgentId })
+  enableAuthzSection()
+}
 
 // Check for existing session on page load
 const savedSession = localStorage.getItem('aauth-session-id')
