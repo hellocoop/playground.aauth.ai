@@ -82,6 +82,10 @@ function resolveStep(step, status, label) {
   if (textEl) textEl.textContent = label
 }
 
+function anotherRequestButton() {
+  return `<div class="log-actions"><button type="button" class="btn-outline js-scroll-authz">Another Authorization Request</button></div>`
+}
+
 function tokenWrap(innerHtml, extraClass = '') {
   const id = nextCopyId()
   return `<div class="token-wrap">
@@ -287,7 +291,8 @@ async function startAuthorization() {
       addLogStep('Authorization Granted', 'success',
         formatResponse(200, responseHeaders, psBody) +
         formatToken('Auth Token', psBody.auth_token,
-          decodeJWTPayloadBrowser(psBody.auth_token))
+          decodeJWTPayloadBrowser(psBody.auth_token)) +
+        anotherRequestButton()
       )
     } else if (psRes.status === 202) {
       // Interaction required. Per spec the PS sends `AAuth-Requirement:
@@ -459,7 +464,8 @@ function startPolling(pollUrl, baseUrl, interactionStep) {
         addLogStep('Authorization Granted', 'success',
           formatResponse(200, null, body) +
           (body.auth_token ? formatToken('Auth Token', body.auth_token,
-            decodeJWTPayloadBrowser(body.auth_token)) : '')
+            decodeJWTPayloadBrowser(body.auth_token)) : '') +
+          anotherRequestButton()
         )
       } else if (res.status === 403) {
         clearInterval(pollInterval)
@@ -528,3 +534,12 @@ function decodeJWTPayloadBrowser(jwt) {
 // ── Wire up Continue button ──
 
 document.getElementById('authz-btn').addEventListener('click', startAuthorization)
+
+// Scroll back to the Authorization Request section when the user clicks
+// "Another Authorization Request" in an Authorization Granted log entry.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.js-scroll-authz')
+  if (!btn) return
+  const section = document.getElementById('authz-section')
+  if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' })
+})

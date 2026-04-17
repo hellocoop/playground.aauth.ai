@@ -504,16 +504,27 @@ a { color: var(--accent); }
   position: absolute;
   inset: 0;
   z-index: 2;
-  background: rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
   border-radius: inherit;
   align-items: center;
   justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
 }
 .log-step.success .interaction-box .interaction-approved { display: flex; }
 .log-step.success .interaction-box::before { animation: none; background: none; }
 .log-step.success .interaction-box::after { outline: 1px solid #40d97b; outline-offset: -1.5px; }
+.log-actions { margin-top: 1rem; }
+.log-actions .btn-outline { width: 100%; }
+.btn-outline {
+  background: transparent;
+  color: #40d97b;
+  border: 1px solid #40d97b;
+  transition: box-shadow 0.15s;
+}
+.btn-outline:hover {
+  background: transparent;
+  color: #40d97b;
+  box-shadow: 0 0 0 1px #40d97b;
+}
 .interaction-check {
   width: 64px;
   height: 64px;

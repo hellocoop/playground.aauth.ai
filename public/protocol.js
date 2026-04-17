@@ -2877,6 +2877,9 @@
     if (statusEl) statusEl.outerHTML = statusIndicatorHtml(status);
     if (textEl) textEl.textContent = label;
   }
+  function anotherRequestButton() {
+    return `<div class="log-actions"><button type="button" class="btn-outline js-scroll-authz">Another Authorization Request</button></div>`;
+  }
   function tokenWrap(innerHtml, extraClass = "") {
     const id = nextCopyId();
     return `<div class="token-wrap">
@@ -3053,7 +3056,7 @@ ${renderJSON(body)}`;
             "Auth Token",
             psBody.auth_token,
             decodeJWTPayloadBrowser(psBody.auth_token)
-          )
+          ) + anotherRequestButton()
         );
       } else if (psRes.status === 202) {
         const reqHeader = psRes.headers.get("aauth-requirement") || "";
@@ -3194,7 +3197,7 @@ ${renderJSON(body)}`;
               "Auth Token",
               body.auth_token,
               decodeJWTPayloadBrowser(body.auth_token)
-            ) : "")
+            ) : "") + anotherRequestButton()
           );
         } else if (res.status === 403) {
           clearInterval(pollInterval);
@@ -3257,4 +3260,10 @@ ${renderJSON(body)}`;
     }
   }
   document.getElementById("authz-btn").addEventListener("click", startAuthorization);
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".js-scroll-authz");
+    if (!btn) return;
+    const section = document.getElementById("authz-section");
+    if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 })();
