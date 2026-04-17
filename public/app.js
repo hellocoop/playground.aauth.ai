@@ -374,6 +374,7 @@ function setAuthenticated(username) {
   document.getElementById('auth-user').textContent = username
   document.getElementById('token-section').classList.remove('disabled')
   document.getElementById('agent-id-row').classList.remove('hidden')
+  document.getElementById('authz-btn').classList.add('hidden')
 }
 
 function displayAgentToken(data) {

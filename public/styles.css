@@ -443,8 +443,8 @@ a { color: var(--accent); }
 
 /* Interaction */
 .interaction-box {
-  background: rgba(64, 217, 123, 0.1);
-  border: 1px solid #40d97b;
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid #eab308;
   border-radius: 4px;
   padding: 1rem;
   margin-top: 0.75rem;

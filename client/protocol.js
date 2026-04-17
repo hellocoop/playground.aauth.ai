@@ -56,7 +56,7 @@ function addLogStep(label, status, content) {
   step.appendChild(heading)
 
   const body = document.createElement('div')
-  body.style.marginTop = '0.5rem'
+  body.style.marginTop = '1rem'
   body.innerHTML = content
   step.appendChild(body)
 
@@ -374,11 +374,9 @@ function renderInteraction(interaction, pollUrl) {
       <p>The Person Server requires user interaction.</p>
       <div class="interaction-code">${escapeHtml(interaction.code)}</div>
       <div class="interaction-actions">
-        <a class="interaction-link" href="${escapeHtml(fullUrl)}">
-          Open Person Server &#x2197;
-        </a>
+        <a class="interaction-link" href="${escapeHtml(fullUrl)}">Open Person Server</a>
         <div class="interaction-url-row">
-          <code class="interaction-url" id="${urlId}">${formatUrlForDisplay(fullUrl)}</code>
+          <code class="interaction-url" id="${urlId}">${escapeHtml(fullUrl)}</code>
           <button class="copy-btn" type="button" data-copy="${escapeHtml(fullUrl)}" aria-label="Copy"></button>
         </div>
       </div>
