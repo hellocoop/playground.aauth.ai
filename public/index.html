@@ -20,6 +20,13 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/styles.css">
+  <style>
+    /* Auth form is hidden by default — app.js reveals it once we know
+       there's no valid session. Prevents "Authenticate with Passkey"
+       from flashing during the /session round-trip. */
+    #auth-form { display: none; }
+    html.show-auth #auth-form { display: block; }
+  </style>
   <!-- Privacy-friendly analytics by Plausible -->
   <script async src="https://plausible.io/js/pa-hgL9ORgnlvRi56cN2C0My.js"></script>
   <script src="/plausible-init.js"></script>
@@ -45,8 +52,7 @@
   </header>
   <main class="container">
 
-  <div class="section section-with-status">
-    <span class="status unauthenticated section-status" id="auth-status">Not authenticated</span>
+  <div class="section">
     <fieldset class="section-box" id="auth-card" data-test="auth-card">
       <legend>Authentication</legend>
       <div id="auth-form">
@@ -57,7 +63,7 @@
         </div>
       </div>
       <div id="auth-info" class="hidden">
-        <p>Authenticated as <strong id="auth-user"></strong></p>
+        <p><span class="step-status step-status-success">&#x2713;</span> Authenticated as <strong id="auth-user"></strong></p>
       </div>
       <div id="token-section" class="disabled">
         <div class="hidden" id="agent-id-row" style="margin-top: 0.75rem;">

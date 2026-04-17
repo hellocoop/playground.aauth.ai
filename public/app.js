@@ -367,9 +367,7 @@ async function authenticate() {
 // ── UI updates ──
 
 function setAuthenticated(username) {
-  document.getElementById('auth-status').textContent = 'Authenticated'
-  document.getElementById('auth-status').className = 'status authenticated section-status'
-  document.getElementById('auth-form').classList.add('hidden')
+  document.documentElement.classList.remove('show-auth')
   document.getElementById('auth-info').classList.remove('hidden')
   document.getElementById('auth-user').textContent = username
   document.getElementById('token-section').classList.remove('disabled')
@@ -615,12 +613,17 @@ wireSettingsAutosave()
 
 // Check for existing session on page load
 const savedSession = localStorage.getItem('aauth-session-id')
+if (!savedSession) {
+  // No session stored → definitely unauthenticated, reveal the form now.
+  document.documentElement.classList.add('show-auth')
+}
 if (savedSession) {
   fetch('/session', {
     headers: { 'X-Session-Id': savedSession },
   }).then(res => res.json()).then(async (data) => {
     if (!data.valid) {
       localStorage.removeItem('aauth-session-id')
+      document.documentElement.classList.add('show-auth')
     } else {
       sessionId = savedSession
       localStorage.setItem('aauth-has-passkey', 'true')
