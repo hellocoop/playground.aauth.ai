@@ -220,23 +220,27 @@ describe('POST /authorize', () => {
     return { agentToken: body.agent_token, ephemeralJwk: ephemeral }
   }
 
-  it('rejects without session', async () => {
-    const app = await loadApp()
-    const { env } = await makeEnv()
-    const res = await app.request('/authorize', { method: 'POST' }, env)
-    expect(res.status).toBe(401)
-  })
-
   it('rejects missing required fields', async () => {
     const app = await loadApp()
     const { env, kv } = await makeEnv()
     await kv.put('session:s1', JSON.stringify({ username: 'alice' }))
     const res = await app.request('/authorize', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Session-Id': 's1' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ps: 'https://ps.test' }),
     }, env)
     expect(res.status).toBe(400)
+  })
+
+  it('rejects invalid agent_token', async () => {
+    const app = await loadApp()
+    const { env } = await makeEnv()
+    const res = await app.request('/authorize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ps: 'https://ps.test', scope: 'openid', agent_token: 'not.a.jwt' }),
+    }, env)
+    expect(res.status).toBe(401)
   })
 
   it('rejects non-HTTPS PS URL', async () => {

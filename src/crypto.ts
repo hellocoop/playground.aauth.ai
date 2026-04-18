@@ -83,4 +83,62 @@ export function decodeJWTPayload(jwt: string): Record<string, unknown> {
   return JSON.parse(json)
 }
 
+export function decodeJWTHeader(jwt: string): Record<string, unknown> {
+  const parts = jwt.split('.')
+  const json = new TextDecoder().decode(base64urlDecode(parts[0]))
+  return JSON.parse(json)
+}
+
+// Verify an Ed25519-signed JWT against a JWKS. Finds the verification key by
+// `kid` (falling back to first key if no kid), rejects non-EdDSA algs, and
+// checks the signature. Callers are responsible for payload claim checks
+// (iss/aud/exp/nbf/jti).
+export async function verifyJWT(
+  jwt: string,
+  jwks: { keys: JsonWebKey[] }
+): Promise<{ header: Record<string, unknown>; payload: Record<string, unknown> }> {
+  const parts = jwt.split('.')
+  if (parts.length !== 3) throw new Error('invalid JWT format')
+  const [headerB64, payloadB64, signatureB64] = parts
+
+  const header = JSON.parse(new TextDecoder().decode(base64urlDecode(headerB64)))
+  if (header.alg !== 'EdDSA') {
+    throw new Error(`unsupported alg: ${header.alg}`)
+  }
+
+  // Match by kid when present; otherwise accept a single-key JWKS.
+  const candidates = jwks.keys.filter((k) =>
+    header.kid ? (k as { kid?: string }).kid === header.kid : true
+  )
+  if (candidates.length === 0) throw new Error('no matching key in JWKS')
+
+  const signingInput = textEncoder.encode(`${headerB64}.${payloadB64}`)
+  const signature = base64urlDecode(signatureB64)
+
+  for (const jwk of candidates) {
+    try {
+      const key = await crypto.subtle.importKey(
+        'jwk',
+        { ...jwk, key_ops: ['verify'] },
+        { name: 'Ed25519' },
+        false,
+        ['verify']
+      )
+      const ok = await crypto.subtle.verify(
+        'Ed25519',
+        key,
+        signature as unknown as ArrayBuffer,
+        signingInput as unknown as ArrayBuffer
+      )
+      if (ok) {
+        const payload = JSON.parse(new TextDecoder().decode(base64urlDecode(payloadB64)))
+        return { header, payload }
+      }
+    } catch {
+      // try next key
+    }
+  }
+  throw new Error('signature verification failed')
+}
+
 export { base64urlEncode, base64urlDecode }

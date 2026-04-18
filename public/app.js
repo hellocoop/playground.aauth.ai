@@ -1,8 +1,13 @@
 // ── State ──
 
-let sessionId = null
 let agentToken = null
 let ephemeralKeyPair = null // CryptoKeyPair — private key never exported
+// The (PS, user) binding_key derived at bootstrap; persisted in localStorage
+// and used on /refresh to prove which (PS, user) pair we're holding
+// credentials for without exposing the raw identifiers again.
+let bindingKey = null
+let bindingPs = null
+let bindingSub = null
 
 // ── IndexedDB helpers for CryptoKey persistence ──
 
@@ -43,6 +48,16 @@ async function clearKeyPair() {
   const db = await openDB()
   const tx = db.transaction(STORE_NAME, 'readwrite')
   tx.objectStore(STORE_NAME).delete('ephemeral')
+}
+
+// Generate a fresh ephemeral Ed25519 key pair and persist it. The design
+// rotates this key on every bootstrap/refresh so the cnf binding in any
+// historical agent_token can't be reused against a rotated key.
+async function rotateEphemeralKeyPair() {
+  const keyPair = await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify'])
+  ephemeralKeyPair = keyPair
+  await saveKeyPair(keyPair)
+  return keyPair
 }
 
 // ── Agent name generation ──
@@ -200,7 +215,7 @@ function renderJSON(obj) {
   )
 }
 
-// ── WebAuthn helpers ──
+// ── WebAuthn helpers (used by bootstrap/refresh ceremonies) ──
 
 function base64urlToBuffer(str) {
   const padded = str + '='.repeat((4 - (str.length % 4)) % 4)
@@ -274,105 +289,30 @@ function serializeAssertion(cred) {
   }
 }
 
-// ── Authentication ──
-
-async function loginWithPasskey() {
-  const optionsRes = await fetch('/webauthn/login/options', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  })
-  const options = await optionsRes.json()
-
-  const credential = await navigator.credentials.get({
-    publicKey: parseRequestOptions(options),
-    mediation: 'optional',
-  })
-
-  const verifyRes = await fetch('/webauthn/login/verify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      response: serializeAssertion(credential),
-      challenge: options.challenge,
-    }),
-  })
-  const result = await verifyRes.json()
-
-  if (result.verified) {
-    sessionId = result.sessionId
-    localStorage.setItem('aauth-session-id', sessionId)
-    const recoveredName = result.username
-    if (recoveredName) {
-      localStorage.setItem('aauth-agent-name', recoveredName)
-      document.getElementById('agent-name').textContent = recoveredName
-    }
-    setAuthenticated(recoveredName || agentName)
-    await generateAndSaveAgentToken()
-    return true
-  }
-  return false
-}
-
-async function registerPasskey() {
-  const username = agentName
-  const optionsRes = await fetch('/webauthn/register/options', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username }),
-  })
-  const options = await optionsRes.json()
-
-  const credential = await navigator.credentials.create({ publicKey: parseCreationOptions(options) })
-
-  const verifyRes = await fetch('/webauthn/register/verify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      response: serializeCredential(credential),
-      challenge: options.challenge,
-    }),
-  })
-  const result = await verifyRes.json()
-
-  if (result.verified) {
-    sessionId = result.sessionId
-    localStorage.setItem('aauth-session-id', sessionId)
-    localStorage.setItem('aauth-has-passkey', 'true')
-    setAuthenticated(username)
-    await generateAndSaveAgentToken()
-    return true
-  }
-  return false
-}
-
-async function authenticate() {
-  const hasPasskey = localStorage.getItem('aauth-has-passkey')
-
-  if (hasPasskey) {
-    try {
-      if (await loginWithPasskey()) return
-    } catch (err) {
-      console.log('Login failed, trying registration:', err.message)
-    }
-  }
-
-  try {
-    await registerPasskey()
-  } catch (err) {
-    console.error('Registration failed:', err)
-  }
+// Exposed for protocol.js (bundled file) to run the WebAuthn prompt itself.
+window.aauthWebAuthn = {
+  parseCreationOptions,
+  parseRequestOptions,
+  serializeCredential,
+  serializeAssertion,
 }
 
 // ── UI updates ──
 
-function setAuthenticated(username) {
+function setAuthenticated(label) {
   document.documentElement.classList.remove('show-auth')
   document.getElementById('auth-info').classList.remove('hidden')
-  document.getElementById('auth-user').textContent = username
+  document.getElementById('auth-user').textContent = label
   document.getElementById('token-section').classList.remove('disabled')
   document.getElementById('agent-id-row').classList.remove('hidden')
   document.getElementById('authz-btn').classList.remove('hidden')
+}
+
+function setUnauthenticated() {
+  document.getElementById('auth-info').classList.add('hidden')
+  document.getElementById('token-section').classList.add('disabled')
+  document.getElementById('agent-id-row').classList.add('hidden')
+  // Authz section stays enabled — Continue triggers bootstrap.
 }
 
 function displayAgentToken(data) {
@@ -384,65 +324,99 @@ function displayAgentToken(data) {
   document.getElementById('token-payload').innerHTML = renderJSON(payload)
 }
 
-// ── Agent token management ──
+// ── Binding state ──
+//
+// localStorage keys:
+//   aauth-binding-key — opaque SHA-256(ps_url + "|" + user_sub), used as
+//                       the refresh key. Matches the server's key.
+//   aauth-binding-ps  — display only (so user sees which PS they bound to)
+//   aauth-binding-sub — pairwise user_sub from bootstrap_token (opaque)
 
-async function generateAndSaveAgentToken() {
-  if (!sessionId) return
-
-  // Generate ephemeral Ed25519 key pair — private key stays as CryptoKey
-  const keyPair = await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify'])
-  ephemeralKeyPair = keyPair
-
-  const publicJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
-
-  const res = await fetch('/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Session-Id': sessionId,
-    },
-    body: JSON.stringify({ ephemeral_jwk: publicJwk, agent_local: agentName }),
-  })
-  const data = await res.json()
-
-  agentToken = data.agent_token
-
-  // Persist: token string in localStorage, CryptoKey pair in IndexedDB
-  localStorage.setItem('aauth-agent-token', data.agent_token)
-  await saveKeyPair(keyPair)
-
-  displayAgentToken(data)
-  enableAuthzSection()
+function loadBinding() {
+  bindingKey = localStorage.getItem('aauth-binding-key')
+  bindingPs = localStorage.getItem('aauth-binding-ps')
+  bindingSub = localStorage.getItem('aauth-binding-sub')
+  return bindingKey ? { bindingKey, psUrl: bindingPs, userSub: bindingSub } : null
 }
 
-async function restoreAgentToken() {
+function saveBinding({ binding_key, ps_url, user_sub }) {
+  bindingKey = binding_key
+  bindingPs = ps_url
+  bindingSub = user_sub
+  localStorage.setItem('aauth-binding-key', binding_key)
+  localStorage.setItem('aauth-binding-ps', ps_url)
+  localStorage.setItem('aauth-binding-sub', user_sub)
+}
+
+function clearBinding() {
+  bindingKey = null
+  bindingPs = null
+  bindingSub = null
+  localStorage.removeItem('aauth-binding-key')
+  localStorage.removeItem('aauth-binding-ps')
+  localStorage.removeItem('aauth-binding-sub')
+}
+
+// Exposed for protocol.js
+window.aauthBinding = { loadBinding, saveBinding, clearBinding, get: () => ({ bindingKey, bindingPs, bindingSub }) }
+
+// ── Agent token persistence ──
+
+function saveAgentToken(token) {
+  agentToken = token
+  localStorage.setItem('aauth-agent-token', token)
+}
+
+function clearAgentToken() {
+  agentToken = null
+  localStorage.removeItem('aauth-agent-token')
+}
+
+async function restoreAgentTokenAndKey() {
   const savedToken = localStorage.getItem('aauth-agent-token')
   if (!savedToken) return false
 
-  // Check expiry
   const payload = decodeJWTPayload(savedToken)
   const now = Math.floor(Date.now() / 1000)
   if (payload.exp <= now) {
-    localStorage.removeItem('aauth-agent-token')
+    clearAgentToken()
     return false
   }
 
-  // Restore key pair from IndexedDB
   const keyPair = await loadKeyPair()
   if (!keyPair) {
-    localStorage.removeItem('aauth-agent-token')
+    clearAgentToken()
     return false
   }
 
   agentToken = savedToken
   ephemeralKeyPair = keyPair
-
-  displayAgentToken({
-    agent_token: savedToken,
-    agent_id: payload.sub,
-  })
+  displayAgentToken({ agent_token: savedToken, agent_id: payload.sub })
   enableAuthzSection()
   return true
+}
+
+// Applied by protocol.js after a successful bootstrap or refresh call.
+function applyBootstrapResult(result) {
+  saveAgentToken(result.agent_token)
+  displayAgentToken({ agent_token: result.agent_token, agent_id: result.agent_id })
+  enableAuthzSection()
+  setAuthenticated(result.agent_id)
+}
+window.aauthApplyBootstrapResult = applyBootstrapResult
+
+// Exposed for protocol.js to rotate the ephemeral key before bootstrap/refresh
+// and retrieve it for signing.
+window.aauthEphemeral = {
+  rotate: async () => {
+    const kp = await rotateEphemeralKeyPair()
+    return {
+      keyPair: kp,
+      publicJwk: await crypto.subtle.exportKey('jwk', kp.publicKey),
+    }
+  },
+  get: () => ephemeralKeyPair,
+  getPublicJwk: async () => ephemeralKeyPair ? crypto.subtle.exportKey('jwk', ephemeralKeyPair.publicKey) : null,
 }
 
 function enableAuthzSection() {
@@ -563,15 +537,9 @@ function wireSettingsAutosave() {
 const agentName = getAgentName()
 document.getElementById('agent-name').textContent = agentName
 
-// Update auth button text
-if (localStorage.getItem('aauth-has-passkey')) {
-  document.getElementById('auth-btn').textContent = 'Sign in with Passkey'
-} else {
-  document.getElementById('auth-btn').textContent = 'Create Passkey'
-}
-
-// Wire up the auth button
-document.getElementById('auth-btn').addEventListener('click', authenticate)
+// Restore PS / scopes / hints from localStorage and start auto-saving on edit
+loadSettings()
+wireSettingsAutosave()
 
 // Copy button SVG icons — inlined for crisp rendering at any scale.
 const COPY_ICON_HTML = `
@@ -607,40 +575,19 @@ document.addEventListener('click', (e) => {
   })
 })
 
-// Restore PS / scopes / hints from localStorage and start auto-saving on edit
-loadSettings()
-wireSettingsAutosave()
+// The authz section is always enabled now — Continue kicks off the
+// bootstrap ceremony if no agent_token has been minted yet.
+enableAuthzSection()
+document.documentElement.classList.remove('show-auth')
 
-// Check for existing session on page load
-const savedSession = localStorage.getItem('aauth-session-id')
-if (!savedSession) {
-  // No session stored → definitely unauthenticated, reveal the form now.
-  document.documentElement.classList.add('show-auth')
-}
-if (savedSession) {
-  fetch('/session', {
-    headers: { 'X-Session-Id': savedSession },
-  }).then(res => res.json()).then(async (data) => {
-    if (!data.valid) {
-      localStorage.removeItem('aauth-session-id')
-      document.documentElement.classList.add('show-auth')
-    } else {
-      sessionId = savedSession
-      localStorage.setItem('aauth-has-passkey', 'true')
-      const name = data.username || agentName
-      localStorage.setItem('aauth-agent-name', name)
-      document.getElementById('agent-name').textContent = name
-      setAuthenticated(name)
-
-      // Try to restore saved token, generate new one if can't
-      const restored = await restoreAgentToken()
-      if (!restored) {
-        await generateAndSaveAgentToken()
-      }
-
-      // If the user is returning from a PS interaction (same-tab redirect
-      // back to '/'), resume polling where we left off.
-      window.resumePendingInteraction?.()
-    }
-  })
-}
+;(async () => {
+  loadBinding()
+  const restored = await restoreAgentTokenAndKey()
+  if (restored) {
+    const payload = decodeJWTPayload(agentToken)
+    setAuthenticated(payload.sub)
+  }
+  // If the user is returning from a PS interaction (same-tab redirect
+  // back to '/'), resume polling where we left off.
+  window.resumePendingInteraction?.()
+})()

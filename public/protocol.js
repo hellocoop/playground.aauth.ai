@@ -2946,20 +2946,452 @@ ${renderJSON(body)}`;
     }
     return hints;
   }
+  async function runBootstrap(psUrl, scope, hints) {
+    const agentServerOrigin = window.location.origin;
+    const { keyPair, publicJwk } = await window.aauthEphemeral.rotate();
+    addLogStep(
+      "Generate ephemeral key",
+      "success",
+      `<p>Rotated to a fresh Ed25519 keypair. The public key is bound into the PS bootstrap request as <code>Signature-Key: sig=hwk</code>, and will appear in the resulting <code>bootstrap_token.cnf.jwk</code>.</p>` + tokenWrap(renderJSON(publicJwk))
+    );
+    const psMetadataUrl = `${psUrl.replace(/\/$/, "")}/.well-known/aauth-person.json`;
+    const psMetaStep = addLogStep(
+      `GET ${psMetadataUrl}`,
+      "pending",
+      formatRequest("GET", psMetadataUrl, null, null)
+    );
+    let psMetadata;
+    try {
+      const psMetaRes = await fetch(psMetadataUrl);
+      psMetadata = await psMetaRes.json();
+      if (!psMetaRes.ok) {
+        resolveStep(psMetaStep, "error", `GET ${new URL(psMetadataUrl).pathname} \u2192 ${psMetaRes.status}`);
+        addLogStep("PS discovery failed", "error", formatResponse(psMetaRes.status, null, psMetadata));
+        return false;
+      }
+      resolveStep(psMetaStep, "success", `GET ${new URL(psMetadataUrl).pathname} \u2192 200`);
+      addLogStep("Person Server metadata", "success", formatResponse(200, null, psMetadata));
+    } catch (err) {
+      resolveStep(psMetaStep, "error", `GET ${new URL(psMetadataUrl).pathname} (network error)`);
+      addLogStep(
+        "PS discovery error",
+        "error",
+        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`
+      );
+      return false;
+    }
+    const bootstrapEndpoint = psMetadata.bootstrap_endpoint || `${psUrl.replace(/\/$/, "")}/bootstrap`;
+    const psBootstrapBody = {
+      agent_server: agentServerOrigin,
+      scope,
+      ...hints
+    };
+    const psBootReqStep = addLogStep(
+      `POST ${new URL(bootstrapEndpoint).pathname}`,
+      "pending",
+      formatRequest("POST", bootstrapEndpoint, {
+        "Content-Type": "application/json",
+        "Signature-Input": 'sig=("@method" "@authority" "@path" "content-type" "signature-key");created=...',
+        "Signature": "sig=:...:",
+        "Signature-Key": `sig=hwk;kty="${publicJwk.kty}";crv="${publicJwk.crv}";x="${publicJwk.x}"`
+      }, psBootstrapBody)
+    );
+    let psBootRes, psBootBody, pollUrl, interactionParams, responseHeaders = {};
+    try {
+      psBootRes = await (0, import_httpsig.fetch)(bootstrapEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(psBootstrapBody),
+        signingKey: publicJwk,
+        signingCryptoKey: keyPair.privateKey,
+        signatureKey: { type: "hwk" },
+        components: ["@method", "@authority", "@path", "content-type", "signature-key"]
+      });
+      for (const key of ["location", "retry-after", "aauth-requirement"]) {
+        const v = psBootRes.headers.get(key);
+        if (v) responseHeaders[key] = v;
+      }
+      try {
+        psBootBody = await psBootRes.json();
+      } catch {
+        psBootBody = null;
+      }
+      pollUrl = psBootRes.headers.get("location") || psBootBody?.location || psBootBody?.pending_url;
+      const reqHeader = psBootRes.headers.get("aauth-requirement") || "";
+      const fromHeader = parseInteractionHeader(reqHeader);
+      interactionParams = {
+        requirement: fromHeader.requirement || psBootBody?.requirement,
+        code: fromHeader.code || psBootBody?.code,
+        url: fromHeader.url || psMetadata.interaction_endpoint || psBootBody?.interaction_url
+      };
+      const reqStatus = psBootRes.ok ? "success" : "error";
+      resolveStep(psBootReqStep, reqStatus, `POST ${new URL(bootstrapEndpoint).pathname} \u2192 ${psBootRes.status}`);
+    } catch (err) {
+      resolveStep(psBootReqStep, "error", `POST ${new URL(bootstrapEndpoint).pathname} (network error)`);
+      addLogStep(
+        "PS /bootstrap failed",
+        "error",
+        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`
+      );
+      return false;
+    }
+    if (psBootRes.status !== 202 || !pollUrl) {
+      addLogStep(
+        "Unexpected PS /bootstrap response",
+        "error",
+        formatResponse(psBootRes.status, responseHeaders, psBootBody)
+      );
+      return false;
+    }
+    const absolutePollUrl = new URL(pollUrl, bootstrapEndpoint).href;
+    const interactionStep = addLogStep(
+      "User Consent at Person Server",
+      "pending",
+      formatResponse(psBootRes.status, responseHeaders, psBootBody) + renderInteraction(interactionParams, absolutePollUrl)
+    );
+    savePendingBootstrap({
+      pollUrl: absolutePollUrl,
+      bootstrapEndpoint,
+      psUrl,
+      scope
+    });
+    const bootstrapToken = await pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep);
+    if (!bootstrapToken) return false;
+    addLogStep(
+      "Bootstrap Token Received",
+      "success",
+      formatToken("Bootstrap Token (aa-bootstrap+jwt)", bootstrapToken, decodeJWTPayloadBrowser(bootstrapToken))
+    );
+    return await completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair);
+  }
+  async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep) {
+    return new Promise((resolve) => {
+      const intv = setInterval(async () => {
+        try {
+          const res = await (0, import_httpsig.fetch)(absolutePollUrl, {
+            method: "GET",
+            signingKey: publicJwk,
+            signingCryptoKey: keyPair.privateKey,
+            signatureKey: { type: "hwk" },
+            components: ["@method", "@authority", "@path", "signature-key"]
+          });
+          if (res.status === 200) {
+            clearInterval(intv);
+            clearPendingBootstrap();
+            const body = await res.json().catch(() => null);
+            const token = body?.bootstrap_token;
+            if (!token) {
+              resolveStep(interactionStep, "error", "Pending returned no bootstrap_token");
+              addLogStep("Bad /pending response", "error", formatResponse(200, null, body));
+              resolve(null);
+              return;
+            }
+            resolveStep(interactionStep, "success", "User Consent Completed");
+            resolve(token);
+          } else if (res.status === 403) {
+            clearInterval(intv);
+            clearPendingBootstrap();
+            resolveStep(interactionStep, "error", "Consent Denied");
+            addLogStep(
+              "User denied consent",
+              "error",
+              formatResponse(403, null, await res.json().catch(() => null)) + anotherRequestButton()
+            );
+            resolve(null);
+          } else if (res.status === 408) {
+            clearInterval(intv);
+            clearPendingBootstrap();
+            resolveStep(interactionStep, "error", "Consent Timed Out");
+            addLogStep(
+              "Interaction timed out",
+              "error",
+              formatResponse(408, null, null) + anotherRequestButton()
+            );
+            resolve(null);
+          }
+        } catch (err) {
+          console.log("Bootstrap poll error:", err.message);
+        }
+      }, 5e3);
+    });
+  }
+  async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair) {
+    const challengeReqStep = addLogStep(
+      "POST /bootstrap/challenge",
+      "pending",
+      formatRequest("POST", "/bootstrap/challenge", { "Content-Type": "application/json" }, {
+        bootstrap_token: bootstrapToken.substring(0, 20) + "...",
+        ephemeral_jwk: publicJwk
+      })
+    );
+    let challengeData;
+    try {
+      const res = await fetch("/bootstrap/challenge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bootstrap_token: bootstrapToken, ephemeral_jwk: publicJwk })
+      });
+      challengeData = await res.json();
+      if (!res.ok) {
+        resolveStep(challengeReqStep, "error", `POST /bootstrap/challenge \u2192 ${res.status}`);
+        addLogStep(
+          "Agent server rejected bootstrap_token",
+          "error",
+          formatResponse(res.status, null, challengeData)
+        );
+        return false;
+      }
+      resolveStep(challengeReqStep, "success", `POST /bootstrap/challenge \u2192 200`);
+      addLogStep(
+        `WebAuthn ${challengeData.webauthn_type === "register" ? "Registration" : "Assertion"} Challenge`,
+        "success",
+        formatResponse(200, null, challengeData)
+      );
+    } catch (err) {
+      resolveStep(challengeReqStep, "error", "POST /bootstrap/challenge (network error)");
+      addLogStep(
+        "Agent server /bootstrap/challenge failed",
+        "error",
+        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`
+      );
+      return false;
+    }
+    let webauthnResponse;
+    try {
+      const opts = challengeData.webauthn_options;
+      if (challengeData.webauthn_type === "register") {
+        const parsed = window.aauthWebAuthn.parseCreationOptions(opts);
+        const cred = await navigator.credentials.create({ publicKey: parsed });
+        webauthnResponse = window.aauthWebAuthn.serializeCredential(cred);
+      } else {
+        const parsed = window.aauthWebAuthn.parseRequestOptions(opts);
+        const cred = await navigator.credentials.get({ publicKey: parsed });
+        webauthnResponse = window.aauthWebAuthn.serializeAssertion(cred);
+      }
+    } catch (err) {
+      addLogStep(
+        "WebAuthn ceremony failed",
+        "error",
+        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`
+      );
+      return false;
+    }
+    addLogStep(
+      "WebAuthn Attestation Completed",
+      "success",
+      `<p>Browser returned a WebAuthn ${challengeData.webauthn_type === "register" ? "attestation" : "assertion"} bound to the challenge.</p>`
+    );
+    const verifyStep = addLogStep(
+      "POST /bootstrap/verify",
+      "pending",
+      formatRequest("POST", "/bootstrap/verify", { "Content-Type": "application/json" }, {
+        bootstrap_tx_id: challengeData.bootstrap_tx_id,
+        webauthn_response: "(credential)"
+      })
+    );
+    let result;
+    try {
+      const res = await fetch("/bootstrap/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bootstrap_tx_id: challengeData.bootstrap_tx_id,
+          webauthn_response: webauthnResponse
+        })
+      });
+      result = await res.json();
+      if (!res.ok) {
+        resolveStep(verifyStep, "error", `POST /bootstrap/verify \u2192 ${res.status}`);
+        addLogStep("Bootstrap verification failed", "error", formatResponse(res.status, null, result));
+        return false;
+      }
+      resolveStep(verifyStep, "success", `POST /bootstrap/verify \u2192 200`);
+    } catch (err) {
+      resolveStep(verifyStep, "error", "POST /bootstrap/verify (network error)");
+      addLogStep(
+        "Agent server /bootstrap/verify failed",
+        "error",
+        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`
+      );
+      return false;
+    }
+    const bootstrapPayload = decodeJWTPayloadBrowser(bootstrapToken) || {};
+    const bindingKey = await deriveBindingKeyBrowser(result.ps, bootstrapPayload.sub || "");
+    window.aauthBinding.saveBinding({
+      binding_key: bindingKey,
+      ps_url: result.ps,
+      user_sub: bootstrapPayload.sub || ""
+    });
+    window.aauthApplyBootstrapResult(result);
+    addLogStep(
+      "Agent Token Minted",
+      "success",
+      formatToken("Agent Token (aa-agent+jwt)", result.agent_token, decodeJWTPayloadBrowser(result.agent_token))
+    );
+    addLogStep(
+      "Resource Token Minted",
+      "success",
+      formatToken("Resource Token (aa-resource+jwt)", result.resource_token, result.resource_token_decoded)
+    );
+    return { result };
+  }
+  async function deriveBindingKeyBrowser(psUrl, userSub) {
+    const data = new TextEncoder().encode(`${psUrl}|${userSub}`);
+    const hash = await crypto.subtle.digest("SHA-256", data);
+    const bytes = new Uint8Array(hash);
+    let binary = "";
+    for (const b of bytes) binary += String.fromCharCode(b);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  async function runRefresh(scope) {
+    const { bindingKey } = window.aauthBinding.get();
+    if (!bindingKey) return null;
+    const { keyPair, publicJwk } = await window.aauthEphemeral.rotate();
+    addLogStep(
+      "Generate ephemeral key",
+      "success",
+      `<p>Rotated ephemeral Ed25519 keypair; new public key will be bound into the refreshed tokens.</p>` + tokenWrap(renderJSON(publicJwk))
+    );
+    const reqStep = addLogStep(
+      "POST /refresh/challenge",
+      "pending",
+      formatRequest("POST", "/refresh/challenge", { "Content-Type": "application/json" }, {
+        binding_key: bindingKey,
+        new_ephemeral_jwk: publicJwk,
+        scope
+      })
+    );
+    let challengeData;
+    try {
+      const res = await fetch("/refresh/challenge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ binding_key: bindingKey, new_ephemeral_jwk: publicJwk, scope })
+      });
+      challengeData = await res.json();
+      if (!res.ok) {
+        resolveStep(reqStep, "error", `POST /refresh/challenge \u2192 ${res.status}`);
+        addLogStep("Refresh rejected", "error", formatResponse(res.status, null, challengeData));
+        window.aauthBinding.clearBinding();
+        return null;
+      }
+      resolveStep(reqStep, "success", "POST /refresh/challenge \u2192 200");
+    } catch (err) {
+      resolveStep(reqStep, "error", "POST /refresh/challenge (network error)");
+      addLogStep(
+        "Refresh network error",
+        "error",
+        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`
+      );
+      return null;
+    }
+    let webauthnResponse;
+    try {
+      const parsed = window.aauthWebAuthn.parseRequestOptions(challengeData.webauthn_options);
+      const cred = await navigator.credentials.get({ publicKey: parsed });
+      webauthnResponse = window.aauthWebAuthn.serializeAssertion(cred);
+    } catch (err) {
+      addLogStep(
+        "WebAuthn assertion failed",
+        "error",
+        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`
+      );
+      return null;
+    }
+    addLogStep(
+      "WebAuthn Assertion Completed",
+      "success",
+      `<p>Browser returned a WebAuthn assertion against the stored credential for this binding.</p>`
+    );
+    const verifyStep = addLogStep(
+      "POST /refresh/verify",
+      "pending",
+      formatRequest("POST", "/refresh/verify", { "Content-Type": "application/json" }, {
+        refresh_tx_id: challengeData.refresh_tx_id,
+        webauthn_response: "(assertion)"
+      })
+    );
+    let result;
+    try {
+      const res = await fetch("/refresh/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          refresh_tx_id: challengeData.refresh_tx_id,
+          webauthn_response: webauthnResponse
+        })
+      });
+      result = await res.json();
+      if (!res.ok) {
+        resolveStep(verifyStep, "error", `POST /refresh/verify \u2192 ${res.status}`);
+        addLogStep("Refresh verify failed", "error", formatResponse(res.status, null, result));
+        return null;
+      }
+      resolveStep(verifyStep, "success", "POST /refresh/verify \u2192 200");
+    } catch (err) {
+      resolveStep(verifyStep, "error", "POST /refresh/verify (network error)");
+      addLogStep(
+        "Refresh verify network error",
+        "error",
+        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`
+      );
+      return null;
+    }
+    window.aauthApplyBootstrapResult(result);
+    addLogStep(
+      "Agent Token Refreshed",
+      "success",
+      formatToken("Agent Token (aa-agent+jwt)", result.agent_token, decodeJWTPayloadBrowser(result.agent_token))
+    );
+    return result;
+  }
   async function startAuthorization() {
     const psUrl = (window.getCurrentPS?.() || "").trim();
     if (!psUrl) {
       alert("Please choose or enter a Person Server URL");
       return;
     }
-    clearLog();
-    showLog();
     const scope = getSelectedScopes();
     if (!scope) {
-      addLogStep("Error", "error", "<p>No scopes selected</p>");
+      alert("Select at least one scope");
       return;
     }
+    clearLog();
+    showLog();
     const hints = getHints();
+    const { bindingKey, bindingPs } = window.aauthBinding.get();
+    const haveUsableBinding = bindingKey && bindingPs === psUrl;
+    let agentTokenValid = false;
+    const savedAgentToken = localStorage.getItem("aauth-agent-token");
+    if (savedAgentToken) {
+      try {
+        const p = decodeJWTPayloadBrowser(savedAgentToken);
+        agentTokenValid = p && p.exp > Math.floor(Date.now() / 1e3);
+      } catch {
+      }
+    }
+    if (!haveUsableBinding) {
+      window.aauthBinding.clearBinding();
+      localStorage.removeItem("aauth-agent-token");
+      const ok = await runBootstrap(psUrl, scope, hints);
+      if (!ok) return;
+    } else if (!agentTokenValid) {
+      const refreshed = await runRefresh(scope);
+      if (!refreshed) return;
+    }
+    await runAuthorizationAgainstPS(psUrl, scope, hints);
+  }
+  async function runAuthorizationAgainstPS(psUrl, scope, hints) {
+    const keyPair = window.aauthEphemeral.get();
+    const agentToken = localStorage.getItem("aauth-agent-token");
+    if (!agentToken || !keyPair) {
+      addLogStep(
+        "Missing agent_token or ephemeral key",
+        "error",
+        "<p>Bootstrap must complete before authorization.</p>"
+      );
+      return;
+    }
     const authzReqStep = addLogStep(
       "POST /authorize",
       "pending",
@@ -2973,45 +3405,31 @@ ${renderJSON(body)}`;
     try {
       const res = await fetch("/authorize", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Session-Id": sessionId
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ps: psUrl, scope, agent_token: agentToken })
       });
       authzData = await res.json();
       if (!res.ok) {
         resolveStep(authzReqStep, "error", `POST /authorize \u2192 ${res.status}`);
-        addLogStep(
-          "Authorization request failed",
-          "error",
-          `<p style="color: var(--error)">${escapeHtml(authzData.error || "Unknown error")}</p>` + (authzData.ps_metadata_url ? `<p>Tried: ${escapeHtml(authzData.ps_metadata_url)}</p>` : "")
-        );
+        addLogStep("Authorization request failed", "error", formatResponse(res.status, null, authzData));
         return;
       }
+      resolveStep(authzReqStep, "success", "POST /authorize \u2192 200");
     } catch (err) {
       resolveStep(authzReqStep, "error", "POST /authorize (network error)");
-      addLogStep(
-        "Network error",
-        "error",
-        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`
-      );
+      addLogStep("Network error", "error", `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`);
       return;
     }
-    resolveStep(authzReqStep, "success", "POST /authorize \u2192 200");
-    addLogStep(
-      "Discover Person Server",
-      "success",
-      formatRequest("GET", authzData.ps_metadata_url, null, null) + '<label style="margin-top: 0.5rem;">Response</label>' + formatResponse(200, null, authzData.ps_metadata)
-    );
     addLogStep(
       "Resource Token Created",
       "success",
       formatToken("Resource Token (aa-resource+jwt)", authzData.resource_token, authzData.resource_token_decoded)
     );
-    const tokenEndpoint = authzData.ps_metadata.token_endpoint;
+    const psMetadata = authzData.ps_metadata;
+    const resourceToken = authzData.resource_token;
+    const tokenEndpoint = psMetadata.token_endpoint;
     const psRequestBody = {
-      resource_token: authzData.resource_token,
+      resource_token: resourceToken,
       capabilities: ["interaction"],
       ...hints
     };
@@ -3026,13 +3444,13 @@ ${renderJSON(body)}`;
       }, psRequestBody)
     );
     try {
-      const signingJwk = await crypto.subtle.exportKey("jwk", ephemeralKeyPair.publicKey);
+      const signingJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
       const psRes = await (0, import_httpsig.fetch)(tokenEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(psRequestBody),
         signingKey: signingJwk,
-        signingCryptoKey: ephemeralKeyPair.privateKey,
+        signingCryptoKey: keyPair.privateKey,
         signatureKey: { type: "jwt", jwt: agentToken },
         components: ["@method", "@authority", "@path", "signature-key"]
       });
@@ -3048,17 +3466,12 @@ ${renderJSON(body)}`;
         psBody = null;
       }
       const psPath = new URL(tokenEndpoint).pathname;
-      const reqStatus = psRes.ok ? "success" : "error";
-      resolveStep(psReqStep, reqStatus, `POST ${psPath} \u2192 ${psRes.status}`);
+      resolveStep(psReqStep, psRes.ok ? "success" : "error", `POST ${psPath} \u2192 ${psRes.status}`);
       if (psRes.status === 200 && psBody?.auth_token) {
         addLogStep(
           "Authorization Granted",
           "success",
-          formatResponse(200, responseHeaders, psBody) + formatToken(
-            "Auth Token",
-            psBody.auth_token,
-            decodeJWTPayloadBrowser(psBody.auth_token)
-          ) + anotherRequestButton()
+          formatResponse(200, responseHeaders, psBody) + formatToken("Auth Token", psBody.auth_token, decodeJWTPayloadBrowser(psBody.auth_token)) + anotherRequestButton()
         );
       } else if (psRes.status === 202) {
         const reqHeader = psRes.headers.get("aauth-requirement") || "";
@@ -3066,7 +3479,7 @@ ${renderJSON(body)}`;
         const interaction = {
           requirement: fromHeader.requirement || psBody?.requirement,
           code: fromHeader.code || psBody?.code,
-          url: fromHeader.url || authzData.ps_metadata?.interaction_endpoint
+          url: fromHeader.url || psMetadata.interaction_endpoint
         };
         const pollUrl = psRes.headers.get("location") || psBody?.location;
         const interactionStep = addLogStep(
@@ -3075,7 +3488,7 @@ ${renderJSON(body)}`;
           formatResponse(202, responseHeaders, psBody) + renderInteraction(interaction, pollUrl)
         );
         if (pollUrl) {
-          startPolling(pollUrl, tokenEndpoint, interactionStep);
+          startAuthTokenPolling(pollUrl, tokenEndpoint, interactionStep);
         }
       } else {
         addLogStep(
@@ -3085,13 +3498,11 @@ ${renderJSON(body)}`;
         );
       }
     } catch (err) {
-      const psPath = new URL(tokenEndpoint).pathname;
-      resolveStep(psReqStep, "error", `POST ${psPath} (network error)`);
-      const isCors = err instanceof TypeError && err.message.includes("fetch");
+      resolveStep(psReqStep, "error", `POST ${new URL(tokenEndpoint).pathname} (network error)`);
       addLogStep(
         "Person Server Call Failed",
         "error",
-        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>` + (isCors ? '<p style="color: var(--muted); font-size: 0.85rem;">This may be a CORS issue. The Person Server must include Access-Control-Allow-Origin headers to allow browser requests.</p>' : "")
+        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`
       );
     }
   }
@@ -3103,9 +3514,7 @@ ${renderJSON(body)}`;
       if (eq === -1) continue;
       const key = part.substring(0, eq).trim();
       let val = part.substring(eq + 1).trim();
-      if (val.startsWith('"') && val.endsWith('"')) {
-        val = val.slice(1, -1);
-      }
+      if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
       result[key] = val;
     }
     return result;
@@ -3154,72 +3563,90 @@ ${renderJSON(body)}`;
     }, 0);
     return html;
   }
-  var pollInterval = null;
-  var PENDING_KEY = "aauth-pending-interaction";
-  function savePendingInteraction(absolutePollUrl, baseUrl) {
+  var PENDING_KEY = "aauth-pending-bootstrap";
+  function savePendingBootstrap(state) {
     try {
-      localStorage.setItem(PENDING_KEY, JSON.stringify({
-        pollUrl: absolutePollUrl,
-        tokenEndpoint: baseUrl,
-        startedAt: Date.now()
-      }));
+      localStorage.setItem(PENDING_KEY, JSON.stringify({ ...state, startedAt: Date.now() }));
     } catch {
     }
   }
-  function clearPendingInteraction() {
+  function clearPendingBootstrap() {
     try {
       localStorage.removeItem(PENDING_KEY);
     } catch {
     }
   }
-  function startPolling(pollUrl, baseUrl, interactionStep) {
-    if (pollInterval) clearInterval(pollInterval);
+  async function resumePendingInteraction() {
+    let saved;
+    try {
+      saved = JSON.parse(localStorage.getItem(PENDING_KEY) || "null");
+    } catch {
+      saved = null;
+    }
+    if (!saved?.pollUrl) return false;
+    if (Date.now() - (saved.startedAt || 0) > 3600 * 1e3) {
+      clearPendingBootstrap();
+      return false;
+    }
+    const kp = window.aauthEphemeral.get();
+    if (!kp) {
+      clearPendingBootstrap();
+      return false;
+    }
+    showLog();
+    const publicJwk = await crypto.subtle.exportKey("jwk", kp.publicKey);
+    const interactionStep = addLogStep(
+      "Resuming bootstrap interaction",
+      "pending",
+      `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
+    );
+    const token = await pollForBootstrapToken(saved.pollUrl, kp, publicJwk, interactionStep);
+    if (!token) return true;
+    addLogStep(
+      "Bootstrap Token Received",
+      "success",
+      formatToken("Bootstrap Token (aa-bootstrap+jwt)", token, decodeJWTPayloadBrowser(token))
+    );
+    const res = await completeAgentServerBootstrap(token, publicJwk, kp);
+    if (res) {
+      await runAuthorizationAgainstPS(saved.psUrl, saved.scope || "openid", {});
+    }
+    return true;
+  }
+  window.resumePendingInteraction = resumePendingInteraction;
+  function startAuthTokenPolling(pollUrl, baseUrl, interactionStep) {
     const absolutePollUrl = new URL(pollUrl, baseUrl).href;
-    savePendingInteraction(absolutePollUrl, baseUrl);
-    pollInterval = setInterval(async () => {
+    const keyPair = window.aauthEphemeral.get();
+    const agentToken = localStorage.getItem("aauth-agent-token");
+    if (!keyPair || !agentToken) return;
+    const intv = setInterval(async () => {
       try {
-        const signingJwk = await crypto.subtle.exportKey("jwk", ephemeralKeyPair.publicKey);
+        const signingJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
         const res = await (0, import_httpsig.fetch)(absolutePollUrl, {
           method: "GET",
           signingKey: signingJwk,
-          signingCryptoKey: ephemeralKeyPair.privateKey,
+          signingCryptoKey: keyPair.privateKey,
           signatureKey: { type: "jwt", jwt: agentToken },
           components: ["@method", "@authority", "@path", "signature-key"]
         });
         if (res.status === 200) {
-          clearInterval(pollInterval);
-          pollInterval = null;
-          clearPendingInteraction();
+          clearInterval(intv);
           const body = await res.json();
           resolveStep(interactionStep, "success", "Interaction Completed");
           addLogStep(
             "Authorization Granted",
             "success",
-            formatResponse(200, null, body) + (body.auth_token ? formatToken(
-              "Auth Token",
-              body.auth_token,
-              decodeJWTPayloadBrowser(body.auth_token)
-            ) : "") + anotherRequestButton()
+            formatResponse(200, null, body) + (body.auth_token ? formatToken("Auth Token", body.auth_token, decodeJWTPayloadBrowser(body.auth_token)) : "") + anotherRequestButton()
           );
-        } else if (res.status === 403) {
-          clearInterval(pollInterval);
-          pollInterval = null;
-          clearPendingInteraction();
-          resolveStep(interactionStep, "error", "Interaction Denied");
+        } else if (res.status === 403 || res.status === 408) {
+          clearInterval(intv);
+          const body = await res.json().catch(() => null);
+          const label = res.status === 403 ? "Interaction Denied" : "Interaction Timed Out";
+          resolveStep(interactionStep, "error", label);
           addLogStep(
-            "Authorization Denied",
+            `Authorization ${res.status === 403 ? "Denied" : "Timed Out"}`,
             "error",
-            formatResponse(403, null, await res.json().catch(() => null)) + anotherRequestButton()
-          );
-        } else if (res.status === 408) {
-          clearInterval(pollInterval);
-          pollInterval = null;
-          clearPendingInteraction();
-          resolveStep(interactionStep, "error", "Interaction Timed Out");
-          addLogStep(
-            "Authorization Timed Out",
-            "error",
-            formatResponse(408, null, null) + anotherRequestButton()
+            formatResponse(res.status, null, body) + anotherRequestButton()
           );
         }
       } catch (err) {
@@ -3227,32 +3654,6 @@ ${renderJSON(body)}`;
       }
     }, 5e3);
   }
-  function resumePendingInteraction() {
-    let saved;
-    try {
-      saved = JSON.parse(localStorage.getItem(PENDING_KEY) || "null");
-    } catch {
-      saved = null;
-    }
-    if (!saved || !saved.pollUrl) return false;
-    if (Date.now() - (saved.startedAt || 0) > 3600 * 1e3) {
-      clearPendingInteraction();
-      return false;
-    }
-    if (!agentToken || !ephemeralKeyPair) {
-      clearPendingInteraction();
-      return false;
-    }
-    showLog();
-    const step = addLogStep(
-      "Resuming after Person Server interaction",
-      "pending",
-      `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
-    );
-    startPolling(saved.pollUrl, saved.tokenEndpoint, step);
-    return true;
-  }
-  window.resumePendingInteraction = resumePendingInteraction;
   function decodeJWTPayloadBrowser(jwt) {
     try {
       const parts = jwt.split(".");
