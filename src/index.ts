@@ -94,7 +94,7 @@ app.get('/session', async (c) => {
 // WebAuthn platform authenticators — acknowledged gap, to be revisited.
 
 app.post('/bootstrap/challenge', async (c) => {
-  const body = await c.req.json<{ bootstrap_token: string; ephemeral_jwk: JsonWebKey }>()
+  const body = await c.req.json<{ bootstrap_token: string; ephemeral_jwk: JsonWebKey; agent_local?: string }>()
   if (!body.bootstrap_token || !body.ephemeral_jwk) {
     return c.json({ error: 'missing bootstrap_token or ephemeral_jwk' }, 400)
   }
@@ -160,7 +160,12 @@ app.post('/bootstrap/challenge', async (c) => {
   const existing = await getBinding(c.env, bindingKey)
 
   const host = new URL(origin).hostname
-  const aauthSub = existing?.aauth_sub ?? `aauth:local@${host}`
+  // First bootstrap for this (PS, user) picks up the client-supplied
+  // agent_local (the generated three-word handle). Subsequent bootstraps
+  // or refreshes reuse the stored aauth_sub so the identifier is stable
+  // across devices and ephemeral-key rotations for the same binding.
+  const agentLocal = sanitizeAgentLocal(body.agent_local)
+  const aauthSub = existing?.aauth_sub ?? `aauth:${agentLocal}@${host}`
 
   const rpID = host
   const rpName = c.env.AGENT_NAME
@@ -312,6 +317,16 @@ app.post('/refresh/verify', async (c) => {
     scope: tx.scope || '',
   }))
 })
+
+// Constrain the client-supplied agent_local to a conservative shape so
+// it's safe to splice into the aauth identifier without escaping. Matches
+// the three-word-handle format generated in public/app.js.
+function sanitizeAgentLocal(input: string | undefined): string {
+  const fallback = 'agent'
+  if (!input) return fallback
+  const cleaned = input.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 64)
+  return cleaned.length > 0 ? cleaned : fallback
+}
 
 // ── Token minting helper ──
 

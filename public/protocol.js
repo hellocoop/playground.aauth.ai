@@ -3116,12 +3116,14 @@ ${renderJSON(body)}`;
     });
   }
   async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair) {
+    const agentLocal = localStorage.getItem("aauth-agent-name") || "";
     const challengeReqStep = addLogStep(
       "POST /bootstrap/challenge",
       "pending",
       formatRequest("POST", "/bootstrap/challenge", { "Content-Type": "application/json" }, {
         bootstrap_token: bootstrapToken.substring(0, 20) + "...",
-        ephemeral_jwk: publicJwk
+        ephemeral_jwk: publicJwk,
+        agent_local: agentLocal
       })
     );
     let challengeData;
@@ -3129,7 +3131,7 @@ ${renderJSON(body)}`;
       const res = await fetch("/bootstrap/challenge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bootstrap_token: bootstrapToken, ephemeral_jwk: publicJwk })
+        body: JSON.stringify({ bootstrap_token: bootstrapToken, ephemeral_jwk: publicJwk, agent_local: agentLocal })
       });
       challengeData = await res.json();
       if (!res.ok) {
