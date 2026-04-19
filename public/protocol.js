@@ -2850,6 +2850,13 @@
   function isExpandable(content) {
     return !!content && !/<details[\s>]/i.test(content);
   }
+  function addLogSection(title) {
+    const log = document.getElementById("protocol-log");
+    const h = document.createElement("div");
+    h.className = "log-section-heading";
+    h.textContent = title;
+    log.appendChild(h);
+  }
   function addLogStep(label, status, content) {
     const log = document.getElementById("protocol-log");
     const expandable = isExpandable(content);
@@ -2948,6 +2955,7 @@ ${renderJSON(body)}`;
   }
   async function runBootstrap(psUrl, scope, hints) {
     const agentServerOrigin = window.location.origin;
+    addLogSection("Bootstrap");
     const { keyPair, publicJwk } = await window.aauthEphemeral.rotate();
     addLogStep(
       "Generate ephemeral key",
@@ -3248,6 +3256,7 @@ ${renderJSON(body)}`;
   async function runRefresh(scope) {
     const { bindingKey } = window.aauthBinding.get();
     if (!bindingKey) return null;
+    addLogSection("Refresh");
     const { keyPair, publicJwk } = await window.aauthEphemeral.rotate();
     addLogStep(
       "Generate ephemeral key",
@@ -3394,6 +3403,7 @@ ${renderJSON(body)}`;
       );
       return;
     }
+    addLogSection("Authorization");
     const authzReqStep = addLogStep(
       "POST /authorize",
       "pending",
@@ -3596,6 +3606,7 @@ ${renderJSON(body)}`;
       return false;
     }
     showLog();
+    addLogSection("Bootstrap (resumed)");
     const publicJwk = await crypto.subtle.exportKey("jwk", kp.publicKey);
     const interactionStep = addLogStep(
       "Resuming bootstrap interaction",

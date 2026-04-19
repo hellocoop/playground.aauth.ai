@@ -433,7 +433,7 @@ function enableAuthzSection() {
 
 const SETTINGS_KEY = 'aauth-playground-settings'
 const HINT_FIELDS = ['login-hint', 'domain-hint', 'provider-hint', 'tenant']
-const DEFAULT_PS = 'https://person.hello-beta.net'
+const DEFAULT_PS = 'https://person.hello.coop'
 
 function loadSettings() {
   let saved = {}
@@ -579,6 +579,30 @@ document.addEventListener('click', (e) => {
 // bootstrap ceremony if no agent_token has been minted yet.
 enableAuthzSection()
 document.documentElement.classList.remove('show-auth')
+
+// Reset button — clears all playground state (settings, binding, agent
+// token, ephemeral key, session, agent-name) and reloads. Matches the
+// pattern in playground.hello.dev; handy when testing a fresh bootstrap
+// or switching between person servers.
+document.getElementById('reset-btn')?.addEventListener('click', async () => {
+  if (!confirm('Reset playground? This clears your PS selection, scopes, agent binding, tokens, and WebAuthn linkage in this browser.')) return
+  // localStorage keys owned by the playground
+  const keys = [
+    SETTINGS_KEY,
+    'aauth-agent-name',
+    'aauth-agent-token',
+    'aauth-binding-key',
+    'aauth-binding-ps',
+    'aauth-binding-sub',
+    'aauth-session-id',
+    'aauth-has-passkey',
+    'aauth-pending-bootstrap',
+    'aauth-pending-interaction',
+  ]
+  for (const k of keys) localStorage.removeItem(k)
+  try { await clearKeyPair() } catch { /* IndexedDB may be unavailable */ }
+  location.reload()
+})
 
 ;(async () => {
   loadBinding()

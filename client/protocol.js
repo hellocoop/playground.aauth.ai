@@ -36,6 +36,17 @@ function isExpandable(content) {
   return !!content && !/<details[\s>]/i.test(content)
 }
 
+// Visual divider in the protocol log — used to group steps under
+// "Bootstrap", "Refresh", and "Authorize" so the reader can tell which
+// ceremony a given step belongs to.
+function addLogSection(title) {
+  const log = document.getElementById('protocol-log')
+  const h = document.createElement('div')
+  h.className = 'log-section-heading'
+  h.textContent = title
+  log.appendChild(h)
+}
+
 function addLogStep(label, status, content) {
   const log = document.getElementById('protocol-log')
   const expandable = isExpandable(content)
@@ -151,6 +162,8 @@ function getHints() {
 
 async function runBootstrap(psUrl, scope, hints) {
   const agentServerOrigin = window.location.origin
+
+  addLogSection('Bootstrap')
 
   // Step 0: rotate ephemeral. Fresh key each bootstrap so the PS's
   // cnf-bound bootstrap_token is scoped to this ceremony only.
@@ -450,6 +463,8 @@ async function runRefresh(scope) {
   const { bindingKey } = window.aauthBinding.get()
   if (!bindingKey) return null
 
+  addLogSection('Refresh')
+
   const { keyPair, publicJwk } = await window.aauthEphemeral.rotate()
   addLogStep('Generate ephemeral key', 'success',
     `<p>Rotated ephemeral Ed25519 keypair; new public key will be bound into the refreshed tokens.</p>` +
@@ -601,6 +616,8 @@ async function runAuthorizationAgainstPS(psUrl, scope, hints) {
       '<p>Bootstrap must complete before authorization.</p>')
     return
   }
+
+  addLogSection('Authorization')
 
   // Mint a fresh resource_token via /authorize for the currently selected
   // scope. /authorize now authenticates via agent_token signature (no
@@ -803,6 +820,7 @@ async function resumePendingInteraction() {
   }
 
   showLog()
+  addLogSection('Bootstrap (resumed)')
   const publicJwk = await crypto.subtle.exportKey('jwk', kp.publicKey)
   const interactionStep = addLogStep('Resuming bootstrap interaction', 'pending',
     `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
