@@ -419,6 +419,382 @@ describe('POST /bootstrap/challenge', () => {
   })
 })
 
+// ── /refresh tests ──
+//
+// Setup helper: seed a binding in KV and mint an agent_token whose
+// cnf.jwk is the ephemeral we'll sign with. Lets each test focus on the
+// signature/authorization check without rebuilding the full bootstrap
+// ceremony.
+
+async function setupBinding(env: any, kv: any, opts: { aauthSub: string; psUrl: string } = { aauthSub: 'aauth:test@playground.test', psUrl: 'https://ps.test' }) {
+  const { computeJwkThumbprint } = await import('../src/crypto')
+  const kp = await webcrypto.subtle.generateKey('Ed25519', true, ['sign', 'verify']) as CryptoKeyPair
+  const publicJwk = await webcrypto.subtle.exportKey('jwk', kp.publicKey)
+  const privateJwk = await webcrypto.subtle.exportKey('jwk', kp.privateKey)
+
+  // Sign an agent_token with the env's SIGNING_KEY.
+  const serverJwk = JSON.parse(env.SIGNING_KEY)
+  const serverKey = await webcrypto.subtle.importKey('jwk', serverJwk, { name: 'Ed25519' }, false, ['sign'])
+  const { d: _d, ...serverPub } = serverJwk as any
+  const serverKid = await computeJwkThumbprint(serverPub)
+  const now = Math.floor(Date.now() / 1000)
+  const header = { alg: 'EdDSA', typ: 'aa-agent+jwt', kid: serverKid }
+  const payload = {
+    iss: env.ORIGIN,
+    dwk: 'aauth-agent.json',
+    sub: opts.aauthSub,
+    ps: opts.psUrl,
+    jti: `jti-${Math.random().toString(36).slice(2)}`,
+    cnf: { jwk: { kty: publicJwk.kty, crv: publicJwk.crv, x: publicJwk.x } },
+    iat: now,
+    exp: now + 3600,
+  }
+  const enc = new TextEncoder()
+  const b64 = (bytes: Uint8Array) => {
+    let s = ''
+    for (const b of bytes) s += String.fromCharCode(b)
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  }
+  const hB = b64(enc.encode(JSON.stringify(header)))
+  const pB = b64(enc.encode(JSON.stringify(payload)))
+  const sig = await webcrypto.subtle.sign('Ed25519', serverKey, enc.encode(`${hB}.${pB}`))
+  const agentToken = `${hB}.${pB}.${b64(new Uint8Array(sig))}`
+
+  // Seed the binding in KV.
+  const userSub = 'pairwise-test'
+  const encoder = new TextEncoder()
+  const hash = await webcrypto.subtle.digest('SHA-256', encoder.encode(`${opts.psUrl}|${userSub}`))
+  const bindingKey = b64(new Uint8Array(hash))
+  await kv.put(`binding:${bindingKey}`, JSON.stringify({
+    ps_url: opts.psUrl,
+    user_sub: userSub,
+    aauth_sub: opts.aauthSub,
+    created_at: Date.now(),
+    credentials: [], // empty — /refresh/challenge doesn't need one; /refresh/verify would
+  }))
+
+  return { agentToken, publicJwk, privateJwk, bindingKey, aauthSub: opts.aauthSub }
+}
+
+describe('POST /refresh/challenge', () => {
+  const TEST_URL = 'http://localhost/refresh/challenge'
+
+  it('(sig) valid signature → 200', async () => {
+    const { env, kv } = await makeEnv()
+    const app = await loadApp()
+    const { agentToken, publicJwk, privateJwk, bindingKey } = await setupBinding(env, kv)
+    const newEph = await makeEphemeral()
+    const body = JSON.stringify({ binding_key: bindingKey, new_ephemeral_jwk: newEph.publicJwk })
+    const headers = await signedHeaders({
+      url: TEST_URL, method: 'POST', body, jwt: agentToken,
+      signingPublicJwk: publicJwk, signingPrivateJwk: privateJwk,
+    })
+    const res = await app.request('/refresh/challenge', { method: 'POST', headers, body }, env)
+    expect(res.status).toBe(200)
+    const out = await res.json() as any
+    expect(out.refresh_tx_id).toBeDefined()
+  })
+
+  it('(sig) missing Signature-Key → 401', async () => {
+    const { env, kv } = await makeEnv()
+    const app = await loadApp()
+    const { bindingKey } = await setupBinding(env, kv)
+    const newEph = await makeEphemeral()
+    const res = await app.request('/refresh/challenge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ binding_key: bindingKey, new_ephemeral_jwk: newEph.publicJwk }),
+    }, env)
+    expect(res.status).toBe(401)
+  })
+
+  it('(sig) signed by attacker key → 401', async () => {
+    const { env, kv } = await makeEnv()
+    const app = await loadApp()
+    const { agentToken, bindingKey } = await setupBinding(env, kv)
+    const attacker = await makeEphemeral()
+    const newEph = await makeEphemeral()
+    const body = JSON.stringify({ binding_key: bindingKey, new_ephemeral_jwk: newEph.publicJwk })
+    const headers = await signedHeaders({
+      url: TEST_URL, method: 'POST', body, jwt: agentToken,
+      signingPublicJwk: attacker.publicJwk, signingPrivateJwk: attacker.privateJwk,
+    })
+    const res = await app.request('/refresh/challenge', { method: 'POST', headers, body }, env)
+    expect(res.status).toBe(401)
+  })
+
+  it('accepts expired agent_token (refresh is for post-expiry renewal)', async () => {
+    const { env, kv } = await makeEnv()
+    const app = await loadApp()
+    // Build a binding and mint an expired agent_token bound to a key we hold.
+    const { computeJwkThumbprint } = await import('../src/crypto')
+    const kp = await webcrypto.subtle.generateKey('Ed25519', true, ['sign', 'verify']) as CryptoKeyPair
+    const publicJwk = await webcrypto.subtle.exportKey('jwk', kp.publicKey)
+    const privateJwk = await webcrypto.subtle.exportKey('jwk', kp.privateKey)
+    const serverJwk = JSON.parse(env.SIGNING_KEY)
+    const serverKey = await webcrypto.subtle.importKey('jwk', serverJwk, { name: 'Ed25519' }, false, ['sign'])
+    const { d: _d, ...serverPub } = serverJwk as any
+    const serverKid = await computeJwkThumbprint(serverPub)
+    const past = Math.floor(Date.now() / 1000) - 600
+    const header = { alg: 'EdDSA', typ: 'aa-agent+jwt', kid: serverKid }
+    const aauthSub = 'aauth:expired@playground.test'
+    const payload = {
+      iss: env.ORIGIN,
+      dwk: 'aauth-agent.json',
+      sub: aauthSub,
+      jti: 'j',
+      cnf: { jwk: { kty: publicJwk.kty, crv: publicJwk.crv, x: publicJwk.x } },
+      iat: past - 3600,
+      exp: past,
+    }
+    const enc = new TextEncoder()
+    const b64 = (bytes: Uint8Array) => {
+      let s = ''
+      for (const b of bytes) s += String.fromCharCode(b)
+      return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    }
+    const hB = b64(enc.encode(JSON.stringify(header)))
+    const pB = b64(enc.encode(JSON.stringify(payload)))
+    const sig = await webcrypto.subtle.sign('Ed25519', serverKey, enc.encode(`${hB}.${pB}`))
+    const expiredToken = `${hB}.${pB}.${b64(new Uint8Array(sig))}`
+
+    // Seed binding with matching aauth_sub.
+    const psUrl = 'https://ps.test'
+    const userSub = 'pairwise-test'
+    const hash = await webcrypto.subtle.digest('SHA-256', enc.encode(`${psUrl}|${userSub}`))
+    const bindingKey = b64(new Uint8Array(hash))
+    await kv.put(`binding:${bindingKey}`, JSON.stringify({
+      ps_url: psUrl, user_sub: userSub, aauth_sub: aauthSub,
+      created_at: Date.now(), credentials: [],
+    }))
+
+    const newEph = await makeEphemeral()
+    const body = JSON.stringify({ binding_key: bindingKey, new_ephemeral_jwk: newEph.publicJwk })
+    const headers = await signedHeaders({
+      url: TEST_URL, method: 'POST', body, jwt: expiredToken,
+      signingPublicJwk: publicJwk, signingPrivateJwk: privateJwk,
+    })
+    const res = await app.request('/refresh/challenge', { method: 'POST', headers, body }, env)
+    expect(res.status).toBe(200)
+  })
+
+  it('rejects when agent_token.sub does not match binding.aauth_sub', async () => {
+    const { env, kv } = await makeEnv()
+    const app = await loadApp()
+    // Mint binding for aauth:legit, but sign with an agent_token whose
+    // sub is aauth:other. /refresh must refuse to cross wires.
+    const { agentToken, publicJwk, privateJwk } = await setupBinding(env, kv, {
+      aauthSub: 'aauth:other@playground.test', psUrl: 'https://ps.test',
+    })
+    // Replace binding's aauth_sub with 'aauth:legit@...' to create the mismatch.
+    const encoder = new TextEncoder()
+    const hash = await webcrypto.subtle.digest('SHA-256', encoder.encode('https://ps.test|pairwise-test'))
+    const b64 = (bytes: Uint8Array) => {
+      let s = ''
+      for (const b of bytes) s += String.fromCharCode(b)
+      return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    }
+    const bindingKey = b64(new Uint8Array(hash))
+    await kv.put(`binding:${bindingKey}`, JSON.stringify({
+      ps_url: 'https://ps.test', user_sub: 'pairwise-test',
+      aauth_sub: 'aauth:legit@playground.test',
+      created_at: Date.now(), credentials: [],
+    }))
+
+    const newEph = await makeEphemeral()
+    const body = JSON.stringify({ binding_key: bindingKey, new_ephemeral_jwk: newEph.publicJwk })
+    const headers = await signedHeaders({
+      url: TEST_URL, method: 'POST', body, jwt: agentToken,
+      signingPublicJwk: publicJwk, signingPrivateJwk: privateJwk,
+    })
+    const res = await app.request('/refresh/challenge', { method: 'POST', headers, body }, env)
+    expect(res.status).toBe(401)
+    expect((await res.json() as any).error).toMatch(/does not match binding/i)
+  })
+})
+
+// ── /binding/forget tests ──
+
+describe('POST /binding/forget', () => {
+  const TEST_URL = 'http://localhost/binding/forget'
+
+  it('(sig) valid signature → 200 and binding removed', async () => {
+    const { env, kv } = await makeEnv()
+    const app = await loadApp()
+    const { agentToken, publicJwk, privateJwk, bindingKey } = await setupBinding(env, kv)
+
+    const body = JSON.stringify({ binding_key: bindingKey })
+    const headers = await signedHeaders({
+      url: TEST_URL, method: 'POST', body, jwt: agentToken,
+      signingPublicJwk: publicJwk, signingPrivateJwk: privateJwk,
+    })
+    const res = await app.request('/binding/forget', { method: 'POST', headers, body }, env)
+    expect(res.status).toBe(200)
+    expect(await kv.get(`binding:${bindingKey}`)).toBeNull()
+  })
+
+  it('(sig) missing Signature-Key → 401', async () => {
+    const { env, kv } = await makeEnv()
+    const app = await loadApp()
+    const { bindingKey } = await setupBinding(env, kv)
+    const res = await app.request('/binding/forget', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ binding_key: bindingKey }),
+    }, env)
+    expect(res.status).toBe(401)
+    // Binding still exists — unauthorized call didn't delete it.
+    expect(await kv.get(`binding:${bindingKey}`)).toBeTruthy()
+  })
+
+  it('rejects when agent_token.sub does not match binding.aauth_sub', async () => {
+    const { env, kv } = await makeEnv()
+    const app = await loadApp()
+    const { agentToken, publicJwk, privateJwk } = await setupBinding(env, kv, {
+      aauthSub: 'aauth:other@playground.test', psUrl: 'https://ps.test',
+    })
+    // Overwrite binding with a different aauth_sub.
+    const encoder = new TextEncoder()
+    const hash = await webcrypto.subtle.digest('SHA-256', encoder.encode('https://ps.test|pairwise-test'))
+    const b64 = (bytes: Uint8Array) => {
+      let s = ''
+      for (const b of bytes) s += String.fromCharCode(b)
+      return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    }
+    const bindingKey = b64(new Uint8Array(hash))
+    await kv.put(`binding:${bindingKey}`, JSON.stringify({
+      ps_url: 'https://ps.test', user_sub: 'pairwise-test',
+      aauth_sub: 'aauth:victim@playground.test',
+      created_at: Date.now(), credentials: [],
+    }))
+
+    const body = JSON.stringify({ binding_key: bindingKey })
+    const headers = await signedHeaders({
+      url: TEST_URL, method: 'POST', body, jwt: agentToken,
+      signingPublicJwk: publicJwk, signingPrivateJwk: privateJwk,
+    })
+    const res = await app.request('/binding/forget', { method: 'POST', headers, body }, env)
+    expect(res.status).toBe(401)
+    expect(await kv.get(`binding:${bindingKey}`)).toBeTruthy()
+  })
+})
+
+// ── /api/demo tests ──
+//
+// Signed with sig=jwt;jwt=<auth_token>. The auth_token is issued by a
+// PS (we fake one) and carries user identity claims + scope. Server
+// verifies the HTTP signature against auth_token.cnf.jwk AND the inner
+// token's JWT signature against the PS's JWKS.
+
+describe('GET /api/demo', () => {
+  const TEST_URL = 'http://localhost/api/demo'
+
+  // Mint a PS-signed auth_token + matching ephemeral keypair, and stub
+  // PS discovery so the agent server can fetch the JWKS.
+  async function mintAuthToken(env: any, opts: { scope?: string; exp?: number } = {}) {
+    const { computeJwkThumbprint } = await import('../src/crypto')
+    const psKp = await webcrypto.subtle.generateKey('Ed25519', true, ['sign', 'verify']) as CryptoKeyPair
+    const psPub = await webcrypto.subtle.exportKey('jwk', psKp.publicKey)
+    const psKid = await computeJwkThumbprint(psPub)
+
+    const eph = await makeEphemeral()
+    const now = Math.floor(Date.now() / 1000)
+    const header = { alg: 'EdDSA', typ: 'aa-auth+jwt', kid: psKid }
+    const payload = {
+      iss: 'https://ps.test',
+      dwk: 'aauth-person.json',
+      aud: env.ORIGIN,
+      sub: 'pairwise-abc',
+      name: 'Ada',
+      email: 'ada@example.com',
+      scope: opts.scope ?? 'playground.demo',
+      cnf: { jwk: { kty: eph.publicJwk.kty, crv: eph.publicJwk.crv, x: eph.publicJwk.x } },
+      iat: now,
+      exp: opts.exp ?? now + 3600,
+    }
+    const enc = new TextEncoder()
+    const b64 = (bytes: Uint8Array) => {
+      let s = ''
+      for (const b of bytes) s += String.fromCharCode(b)
+      return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    }
+    const hB = b64(enc.encode(JSON.stringify(header)))
+    const pB = b64(enc.encode(JSON.stringify(payload)))
+    const sig = await webcrypto.subtle.sign('Ed25519', psKp.privateKey, enc.encode(`${hB}.${pB}`))
+    const authToken = `${hB}.${pB}.${b64(new Uint8Array(sig))}`
+
+    stubPsDiscovery('https://ps.test', { keys: [{ ...psPub, kid: psKid }] })
+    return { authToken, eph }
+  }
+
+  it('(sig) valid signature + playground.demo scope → 200', async () => {
+    const { env } = await makeEnv()
+    const app = await loadApp()
+    const { authToken, eph } = await mintAuthToken(env)
+    const headers = await signedHeaders({
+      url: TEST_URL, method: 'GET', jwt: authToken,
+      signingPublicJwk: eph.publicJwk, signingPrivateJwk: eph.privateJwk,
+    })
+    const res = await app.request('/api/demo', { method: 'GET', headers }, env)
+    expect(res.status).toBe(200)
+    const out = await res.json() as any
+    expect(out.hello).toBe('Ada')
+    vi.unstubAllGlobals()
+  })
+
+  it('(sig) missing Signature-Key → 401', async () => {
+    const { env } = await makeEnv()
+    const app = await loadApp()
+    await mintAuthToken(env)
+    const res = await app.request('/api/demo', { method: 'GET' }, env)
+    expect(res.status).toBe(401)
+    vi.unstubAllGlobals()
+  })
+
+  it('(sig) signed by attacker key → 401', async () => {
+    const { env } = await makeEnv()
+    const app = await loadApp()
+    const { authToken } = await mintAuthToken(env)
+    const attacker = await makeEphemeral()
+    const headers = await signedHeaders({
+      url: TEST_URL, method: 'GET', jwt: authToken,
+      signingPublicJwk: attacker.publicJwk, signingPrivateJwk: attacker.privateJwk,
+    })
+    const res = await app.request('/api/demo', { method: 'GET', headers }, env)
+    expect(res.status).toBe(401)
+    vi.unstubAllGlobals()
+  })
+
+  it('rejects with 403 when scope lacks playground.demo', async () => {
+    const { env } = await makeEnv()
+    const app = await loadApp()
+    const { authToken, eph } = await mintAuthToken(env, { scope: 'openid profile' })
+    const headers = await signedHeaders({
+      url: TEST_URL, method: 'GET', jwt: authToken,
+      signingPublicJwk: eph.publicJwk, signingPrivateJwk: eph.privateJwk,
+    })
+    const res = await app.request('/api/demo', { method: 'GET', headers }, env)
+    expect(res.status).toBe(403)
+    expect((await res.json() as any).error).toBe('insufficient_scope')
+    vi.unstubAllGlobals()
+  })
+
+  it('rejects expired auth_token', async () => {
+    const { env } = await makeEnv()
+    const app = await loadApp()
+    const past = Math.floor(Date.now() / 1000) - 60
+    const { authToken, eph } = await mintAuthToken(env, { exp: past })
+    const headers = await signedHeaders({
+      url: TEST_URL, method: 'GET', jwt: authToken,
+      signingPublicJwk: eph.publicJwk, signingPrivateJwk: eph.privateJwk,
+    })
+    const res = await app.request('/api/demo', { method: 'GET', headers }, env)
+    expect(res.status).toBe(401)
+    expect((await res.json() as any).error).toMatch(/expired/i)
+    vi.unstubAllGlobals()
+  })
+})
+
 describe('well-known metadata', () => {
   it('/.well-known/aauth-agent.json exposes bootstrap + refresh endpoints, name, logo_uri', async () => {
     const app = await loadApp()
