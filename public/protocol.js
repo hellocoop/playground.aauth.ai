@@ -3816,6 +3816,7 @@ ${renderJSON(body)}`;
   document.addEventListener("click", (e) => {
     const btn = e.target.closest(".js-scroll-authz");
     if (!btn) return;
+    clearLog();
     const section = document.getElementById("authz-section");
     if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
   });

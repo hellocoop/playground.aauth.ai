@@ -1094,6 +1094,9 @@ document.getElementById('authz-btn').addEventListener('click', startAuthorizatio
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('.js-scroll-authz')
   if (!btn) return
+  // Clear the protocol log but preserve binding / tokens — user wants a
+  // fresh authorization flow, not a full reset.
+  clearLog()
   const section = document.getElementById('authz-section')
   if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' })
 })

@@ -79,9 +79,8 @@ body {
   font-size: 0.92em;
   display: inline-block;
 }
-.brand { display: inline-flex; align-items: baseline; gap: 0.25rem; font-weight: 400; }
-.brand svg { display: block; }
-.brand span { opacity: 0.7; font-size: 1.125rem; }
+.brand { font-weight: 400; opacity: 0.7; font-size: 1.125rem; }
+.brand-logo { display: block; }
 h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
 h2 { font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--muted); font-weight: 400; }
 .card {
@@ -100,9 +99,10 @@ button {
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.2s;
 }
-button:hover { background: #2dbb63; }
+/* Pop-on-hover: thicker outline ring instead of color/brightness change.
+   Using box-shadow (outside layout flow) so the button's size doesn't shift. */
+button:hover { box-shadow: 0 0 0 2px #40d97b; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 input[type="text"], input[type="url"] {
   background: transparent;
@@ -311,7 +311,6 @@ a { color: var(--accent); }
 }
 .hint-row .hint-enable { cursor: pointer; }
 .hint-row .hint-name {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
   font-size: 0.85rem;
   color: var(--muted);
 }
@@ -590,14 +589,13 @@ a { color: var(--accent); }
 .log-actions .btn-outline { width: 100%; }
 .btn-outline {
   background: transparent;
-  color: #40d97b;
-  border: 1px solid #40d97b;
-  transition: box-shadow 0.15s;
+  color: var(--text);
+  border: 1px solid var(--border);
 }
 .btn-outline:hover {
   background: transparent;
-  color: #40d97b;
-  box-shadow: 0 0 0 1px #40d97b;
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border);
 }
 .interaction-check {
   width: 64px;
@@ -626,9 +624,8 @@ a { color: var(--accent); }
   border-radius: 4px;
   font-size: 0.9rem;
   font-weight: 500;
-  transition: background 0.2s;
 }
-.interaction-link:hover { background: #2dbb63; }
+.interaction-link:hover { box-shadow: 0 0 0 2px #40d97b; }
 .interaction-url-row {
   display: flex;
   align-items: flex-start;

@@ -432,6 +432,25 @@ function enableAuthzSection() {
 // ── Scope picker hydration ──
 // Renders from /.well-known/aauth-resource.json so the UI can't offer a
 // scope /authorize would later reject. openid is always shown as required.
+// Order is explicit (not alphabetical) — identity claims first, then
+// external-provider links grouped at the bottom. Anything the server
+// advertises that's not in this list falls back to alphabetical at the end.
+const SCOPE_DISPLAY_ORDER = [
+  'openid',
+  'profile',
+  'name',
+  'email',
+  'picture',
+  'nickname',
+  'given_name',
+  'family_name',
+  'phone',
+  'ethereum',
+  'discord',
+  'twitter',
+  'github',
+  'gitlab',
+]
 
 async function hydrateScopesFromMetadata() {
   const grid = document.getElementById('scope-grid')
@@ -444,7 +463,15 @@ async function hydrateScopesFromMetadata() {
   } catch {
     // Fall through with empty descriptions so at least openid renders.
   }
-  const others = Object.keys(descriptions).filter((s) => s !== 'openid').sort()
+  const orderIndex = new Map(SCOPE_DISPLAY_ORDER.map((s, i) => [s, i]))
+  const ordered = Object.keys(descriptions)
+    .filter((s) => s !== 'openid')
+    .sort((a, b) => {
+      const ai = orderIndex.has(a) ? orderIndex.get(a) : Infinity
+      const bi = orderIndex.has(b) ? orderIndex.get(b) : Infinity
+      if (ai !== bi) return ai - bi
+      return a.localeCompare(b)
+    })
   const row = (scope, opts = {}) => {
     const attrs = [`value="${scope}"`]
     if (opts.checked) attrs.push('checked')
@@ -455,7 +482,7 @@ async function hydrateScopesFromMetadata() {
   }
   const html = [
     row('openid', { checked: true, disabled: true, required: true }),
-    ...others.map((s) => row(s)),
+    ...ordered.map((s) => row(s)),
   ].join('')
   grid.innerHTML = html
 }
