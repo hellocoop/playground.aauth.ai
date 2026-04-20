@@ -199,9 +199,11 @@ function getHints() {
 // resource_token). Runs once per (PS, user) pair; the resulting binding_key
 // is stored in localStorage so /refresh can reuse the same credentials.
 
-// No scope parameter: per §12.2 scope belongs on the agent↔resource axis
-// (/authorize), not the binding ceremony.
-async function runBootstrap(psUrl, hints) {
+// `scope` here is IDENTITY scope — what user claims the PS should release
+// at bootstrap (openid/profile/email/...). The PS requires at least one,
+// since bootstrap is where the user consents to identity sharing. Resource
+// scope is a separate concept and flows through /authorize instead.
+async function runBootstrap(psUrl, scope, hints) {
   const agentServerOrigin = window.location.origin
 
   addLogSection('Bootstrap')
@@ -243,6 +245,7 @@ async function runBootstrap(psUrl, hints) {
   // key to bind into the resulting bootstrap_token.cnf.
   const psBootstrapBody = {
     agent_server: agentServerOrigin,
+    scope,
     ...hints,
   }
   const psBootReqStep = addLogStep(`POST ${new URL(bootstrapEndpoint).pathname}`, 'pending',
@@ -687,7 +690,7 @@ async function startAuthorization() {
     // Full bootstrap — also drops any stale binding/token.
     window.aauthBinding.clearBinding()
     localStorage.removeItem('aauth-agent-token')
-    const ok = await runBootstrap(psUrl, hints)
+    const ok = await runBootstrap(psUrl, scope, hints)
     if (!ok) return
     // If bootstrap already produced an auth_token (PS bundled it into the
     // pending response), we're done — no need to hit PS /token, which
