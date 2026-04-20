@@ -304,7 +304,6 @@ window.aauthWebAuthn = {
 // ── UI updates ──
 
 function setAuthenticated(label) {
-  document.documentElement.classList.remove('show-auth')
   document.getElementById('auth-form').classList.add('hidden')
   document.getElementById('auth-info').classList.remove('hidden')
   document.getElementById('auth-user').textContent = label
@@ -578,7 +577,6 @@ document.addEventListener('click', (e) => {
 // The authz section is always enabled now — Continue kicks off the
 // bootstrap ceremony if no agent_token has been minted yet.
 enableAuthzSection()
-document.documentElement.classList.remove('show-auth')
 
 // Reset button — clears all playground state (settings, binding, agent
 // token, ephemeral key, session, agent-name) and reloads. Matches the
