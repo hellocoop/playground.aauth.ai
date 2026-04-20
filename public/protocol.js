@@ -3673,6 +3673,7 @@ ${renderJSON(body)}`;
     } catch {
     }
   }
+  var _resumeInteractionPolling = false;
   async function resumePendingInteraction() {
     let saved;
     try {
@@ -3690,6 +3691,8 @@ ${renderJSON(body)}`;
       clearPendingBootstrap();
       return false;
     }
+    if (_resumeInteractionPolling) return false;
+    _resumeInteractionPolling = true;
     showLog();
     addLogSection("Bootstrap (resumed)");
     const publicJwk = await crypto.subtle.exportKey("jwk", kp.publicKey);
@@ -3757,6 +3760,25 @@ ${renderJSON(body)}`;
     return true;
   }
   window.resumePendingAuthorize = resumePendingAuthorize;
+  function fireFallbackResume() {
+    setTimeout(() => {
+      try {
+        window.resumePendingInteraction?.();
+      } catch (err) {
+        console.error("[aauth] fallback resumePendingInteraction threw:", err);
+      }
+      try {
+        window.resumePendingAuthorize?.();
+      } catch (err) {
+        console.error("[aauth] fallback resumePendingAuthorize threw:", err);
+      }
+    }, 200);
+  }
+  if (document.readyState === "complete") {
+    fireFallbackResume();
+  } else {
+    window.addEventListener("load", fireFallbackResume, { once: true });
+  }
   async function startAuthTokenPolling(pollUrl, baseUrl, interactionStep) {
     const absolutePollUrl = new URL(pollUrl, baseUrl).href;
     const keyPair = window.aauthEphemeral.get();

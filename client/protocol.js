@@ -941,6 +941,12 @@ function clearPendingBootstrap() {
   try { localStorage.removeItem(PENDING_KEY) } catch {}
 }
 
+// Idempotency guard — both app.js's init IIFE and the window-load fallback
+// (below) call resumePendingInteraction; the second call is a safety net
+// for environments where the IIFE silently no-ops after a redirect-back.
+// Without this, we'd poll twice in parallel and race on /pending.
+let _resumeInteractionPolling = false
+
 async function resumePendingInteraction() {
   let saved
   try { saved = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null') } catch { saved = null }
@@ -960,6 +966,9 @@ async function resumePendingInteraction() {
     clearPendingBootstrap()
     return false
   }
+
+  if (_resumeInteractionPolling) return false
+  _resumeInteractionPolling = true
 
   showLog()
   addLogSection('Bootstrap (resumed)')
@@ -1028,6 +1037,28 @@ async function resumePendingAuthorize() {
   return true
 }
 window.resumePendingAuthorize = resumePendingAuthorize
+
+// ── Fallback resume trigger ──
+//
+// app.js's init IIFE calls window.resumePendingInteraction / Authorize after
+// restoring binding + keypair. That path has silently no-op'd after some
+// page-load timing shifts, leaving the playground blank after a same-tab
+// redirect back from the PS. Fire the resume calls again on window 'load'
+// so the behavior doesn't depend on the IIFE's good behavior. The resume
+// functions guard against double-polling (see `_resumeInteractionPolling`)
+// and staleness, so a redundant call here is a safe no-op.
+function fireFallbackResume() {
+  // Small delay so app.js has had a chance to set ephemeralKeyPair from IDB.
+  setTimeout(() => {
+    try { window.resumePendingInteraction?.() } catch (err) { console.error('[aauth] fallback resumePendingInteraction threw:', err) }
+    try { window.resumePendingAuthorize?.() } catch (err) { console.error('[aauth] fallback resumePendingAuthorize threw:', err) }
+  }, 200)
+}
+if (document.readyState === 'complete') {
+  fireFallbackResume()
+} else {
+  window.addEventListener('load', fireFallbackResume, { once: true })
+}
 
 // ── Auth-token polling (for PS /token interaction flow) ──
 //
