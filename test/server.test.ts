@@ -186,7 +186,13 @@ describe('POST /token', () => {
     expect(payload.iss).toBe('https://playground.test')
     expect(payload.sub).toBe('aauth:playground@playground.test')
     expect(payload.dwk).toBe('aauth-agent.json')
-    expect((payload.cnf as any).jwk).toEqual(ephemeral)
+    // cnf.jwk is sanitized to RFC 7638 required members (kty, crv, x for OKP).
+    // WebCrypto-inserted fields like key_ops, ext, alg are stripped.
+    expect((payload.cnf as any).jwk).toEqual({
+      kty: ephemeral.kty,
+      crv: ephemeral.crv,
+      x: ephemeral.x,
+    })
     expect(payload.exp as number).toBe((payload.iat as number) + 3600)
   })
 

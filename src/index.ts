@@ -10,6 +10,7 @@ import {
   decodeJWTPayload,
   verifyJWT,
   base64urlEncode,
+  sanitizeCnfJwk,
 } from './crypto'
 import {
   webauthnRoutes,
@@ -365,7 +366,7 @@ async function mintAgentAndResource(
     sub: args.aauthSub,
     ps: args.psUrl,
     jti: generateJTI(),
-    cnf: { jwk: args.ephemeralJwk },
+    cnf: { jwk: sanitizeCnfJwk(args.ephemeralJwk) },
     iat: now,
     exp: now + 3600,
   }
@@ -438,7 +439,7 @@ app.post('/token', async (c) => {
     dwk: 'aauth-agent.json',
     sub,
     jti: generateJTI(),
-    cnf: { jwk: body.ephemeral_jwk },
+    cnf: { jwk: sanitizeCnfJwk(body.ephemeral_jwk) },
     iat: now,
     exp: now + 3600, // 1 hour
   }

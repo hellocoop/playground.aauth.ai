@@ -43,6 +43,18 @@ export async function getPublicJWK(jwkJson: string): Promise<JsonWebKey & { kid:
   return { ...publicJwk, kid }
 }
 
+// Keep only the RFC 7638 required public-key members for the given key type.
+// Drops d (private), key_ops, ext, alg, and any other WebCrypto-inserted
+// hints. Use for cnf.jwk in agent_token / resource_token so the confirmation
+// key is reduced to the canonical form verifiers can directly thumbprint.
+export function sanitizeCnfJwk(jwk: JsonWebKey): JsonWebKey {
+  if (jwk.kty === 'OKP') return { kty: 'OKP', crv: jwk.crv, x: jwk.x }
+  if (jwk.kty === 'EC') return { kty: 'EC', crv: jwk.crv, x: jwk.x, y: jwk.y }
+  if (jwk.kty === 'RSA') return { kty: 'RSA', n: jwk.n, e: jwk.e }
+  const { d: _d, key_ops: _ops, ext: _ext, alg: _alg, ...rest } = jwk as unknown as Record<string, unknown>
+  return rest as unknown as JsonWebKey
+}
+
 export async function computeJwkThumbprint(jwk: JsonWebKey): Promise<string> {
   // Per RFC 7638: lexicographic order of required members for OKP: crv, kty, x
   const thumbprintInput = JSON.stringify({
