@@ -2828,6 +2828,25 @@
   var stringToBytes = qrcode.stringToBytes;
 
   // client/protocol.js
+  window.addEventListener("unhandledrejection", (ev) => {
+    try {
+      const msg = ev?.reason?.stack || ev?.reason?.message || String(ev?.reason);
+      console.error("[aauth] unhandled rejection:", msg);
+      showLog();
+      addLogStep(
+        "Unhandled error",
+        "error",
+        `<p style="color: var(--error); white-space: pre-wrap;">${escapeHtml(msg)}</p>`
+      );
+    } catch {
+    }
+  });
+  function trace(label, extra) {
+    try {
+      console.log(`[aauth] ${label}`, extra ?? "");
+    } catch {
+    }
+  }
   function clearLog() {
     document.getElementById("protocol-log").innerHTML = "";
     document.getElementById("log-section").classList.add("hidden");
@@ -3064,6 +3083,7 @@ ${renderJSON(body)}`;
       scope
     });
     const pending = await pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep);
+    trace("pollForBootstrapToken returned", pending ? { hasToken: !!pending.bootstrap_token, hasAuth: !!pending.auth_token } : null);
     if (!pending) return false;
     addLogStep(
       "Bootstrap Token Received",
@@ -3088,14 +3108,17 @@ ${renderJSON(body)}`;
           components: ["@method", "@authority", "@path", "signature-key"]
         });
         if (res.status === 200) {
+          trace("poll 200 received");
           clearPendingBootstrap();
           const body = await res.json().catch(() => null);
           const token = body?.bootstrap_token;
           if (!token) {
+            trace("poll 200 missing bootstrap_token", body);
             resolveStep(interactionStep, "error", "Pending returned no bootstrap_token");
             addLogStep("Bad /pending response", "error", formatResponse(200, null, body));
             return null;
           }
+          trace("poll token extracted, length", token.length);
           resolveStep(interactionStep, "success", "User Consent Completed");
           return { bootstrap_token: token, auth_token: body?.auth_token, raw: body };
         }
@@ -3126,6 +3149,7 @@ ${renderJSON(body)}`;
     }
   }
   async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, ctx = {}) {
+    trace("completeAgentServerBootstrap entered");
     clearPendingBootstrap();
     const agentLocal = window.aauthGetOrGenerateAgentName();
     const challengeReqStep = addLogStep(

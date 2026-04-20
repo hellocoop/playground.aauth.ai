@@ -6,6 +6,27 @@
 import { fetch as sigFetch } from '@hellocoop/httpsig'
 import qrcode from 'qrcode-generator'
 
+// ── Diagnostics ──
+//
+// Surface silent errors so we don't stare at a blank form wondering why
+// bootstrap didn't complete. The global unhandledrejection handler
+// catches any async error the ceremony code didn't explicitly catch and
+// writes it to the protocol log (and console).
+
+window.addEventListener('unhandledrejection', (ev) => {
+  try {
+    const msg = ev?.reason?.stack || ev?.reason?.message || String(ev?.reason)
+    console.error('[aauth] unhandled rejection:', msg)
+    showLog()
+    addLogStep('Unhandled error', 'error',
+      `<p style="color: var(--error); white-space: pre-wrap;">${escapeHtml(msg)}</p>`)
+  } catch { /* last-ditch, don't throw from the error handler */ }
+})
+
+function trace(label, extra) {
+  try { console.log(`[aauth] ${label}`, extra ?? '') } catch {}
+}
+
 // ── Log rendering ──
 
 function clearLog() {
@@ -267,6 +288,7 @@ async function runBootstrap(psUrl, scope, hints) {
   })
 
   const pending = await pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep)
+  trace('pollForBootstrapToken returned', pending ? { hasToken: !!pending.bootstrap_token, hasAuth: !!pending.auth_token } : null)
   if (!pending) return false
 
   addLogStep('Bootstrap Token Received', 'success',
@@ -300,14 +322,17 @@ async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, intera
         components: ['@method', '@authority', '@path', 'signature-key'],
       })
       if (res.status === 200) {
+        trace('poll 200 received')
         clearPendingBootstrap()
         const body = await res.json().catch(() => null)
         const token = body?.bootstrap_token
         if (!token) {
+          trace('poll 200 missing bootstrap_token', body)
           resolveStep(interactionStep, 'error', 'Pending returned no bootstrap_token')
           addLogStep('Bad /pending response', 'error', formatResponse(200, null, body))
           return null
         }
+        trace('poll token extracted, length', token.length)
         resolveStep(interactionStep, 'success', 'User Consent Completed')
         // Return the full body so callers can pick up auth_token if the PS
         // bundles one — that lets us skip the /authorize + PS /token round
@@ -337,6 +362,7 @@ async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, intera
 }
 
 async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, ctx = {}) {
+  trace('completeAgentServerBootstrap entered')
   // Belt-and-suspenders: pollForBootstrapToken clears the pending-bootstrap
   // key on success, but clear again here so any post-poll error path
   // (e.g. agent-server /bootstrap/challenge rejecting the token) doesn't
