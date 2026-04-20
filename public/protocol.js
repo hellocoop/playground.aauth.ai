@@ -3303,7 +3303,7 @@ ${renderJSON(body)}`;
       addLogStep(
         "Authorization Granted (from bootstrap)",
         "success",
-        `<p>The PS returned an <code>auth_token</code> alongside the bootstrap_token in the pending response. Skipping the PS /token round trip.</p>` + formatAuthToken(ctx.authTokenFromPending) + anotherRequestButton()
+        `<p>The PS returned an <code>auth_token</code> alongside the bootstrap_token in the pending response. Skipping the PS /token round trip.</p>` + formatAuthToken(ctx.authTokenFromPending)
       );
       await callDemoResourceApi(ctx.authTokenFromPending);
     }
@@ -3560,7 +3560,7 @@ ${renderJSON(body)}`;
         addLogStep(
           "Authorization Granted",
           "success",
-          formatAuthToken(psBody.auth_token) + anotherRequestButton()
+          formatAuthToken(psBody.auth_token)
         );
         await callDemoResourceApi(psBody.auth_token);
       } else if (psRes.status === 202) {
@@ -3792,7 +3792,7 @@ ${renderJSON(body)}`;
           addLogStep(
             "Authorization Granted",
             "success",
-            (body.auth_token ? formatAuthToken(body.auth_token) : "") + anotherRequestButton()
+            body.auth_token ? formatAuthToken(body.auth_token) : anotherRequestButton()
           );
           if (body.auth_token) await callDemoResourceApi(body.auth_token);
           return;
@@ -3851,14 +3851,14 @@ ${renderJSON(body)}`;
       addLogStep(
         res.ok ? "Demo API Called" : "Demo API Call Failed",
         res.ok ? "success" : "error",
-        formatResponse(res.status, null, body)
+        formatResponse(res.status, null, body) + anotherRequestButton()
       );
     } catch (err) {
       resolveStep(reqStep, "error", "GET /api/demo (network error)");
       addLogStep(
         "Demo API Call Failed",
         "error",
-        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`
+        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>` + anotherRequestButton()
       );
     }
   }
