@@ -266,15 +266,19 @@ async function runBootstrap(psUrl, scope, hints) {
     scope,
   })
 
-  const bootstrapToken = await pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep)
-  if (!bootstrapToken) return false
+  const pending = await pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep)
+  if (!pending) return false
 
   addLogStep('Bootstrap Token Received', 'success',
-    formatToken('Bootstrap Token (aa-bootstrap+jwt)', bootstrapToken, decodeJWTPayloadBrowser(bootstrapToken))
+    formatToken('Bootstrap Token (aa-bootstrap+jwt)', pending.bootstrap_token, decodeJWTPayloadBrowser(pending.bootstrap_token))
   )
 
   // Step 4: exchange with our own agent server /bootstrap/challenge.
-  return await completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair)
+  return await completeAgentServerBootstrap(pending.bootstrap_token, publicJwk, keyPair, {
+    psUrl,
+    scope,
+    authTokenFromPending: pending.auth_token,
+  })
 }
 
 // Poll the PS pending URL for the bootstrap_token. Polls are signed with
@@ -305,7 +309,10 @@ async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, intera
           return null
         }
         resolveStep(interactionStep, 'success', 'User Consent Completed')
-        return token
+        // Return the full body so callers can pick up auth_token if the PS
+        // bundles one — that lets us skip the /authorize + PS /token round
+        // trip since user consent was already established during bootstrap.
+        return { bootstrap_token: token, auth_token: body?.auth_token, raw: body }
       }
       if (res.status === 403) {
         clearPendingBootstrap()
@@ -329,7 +336,7 @@ async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, intera
   }
 }
 
-async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair) {
+async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, ctx = {}) {
   // Belt-and-suspenders: pollForBootstrapToken clears the pending-bootstrap
   // key on success, but clear again here so any post-poll error path
   // (e.g. agent-server /bootstrap/challenge rejecting the token) doesn't
@@ -450,7 +457,20 @@ async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair) 
     formatToken('Resource Token (aa-resource+jwt)', result.resource_token, result.resource_token_decoded)
   )
 
-  return { result }
+  // If the PS bundled an auth_token in the bootstrap pending response, the
+  // user's consent is already recorded at the PS and we can skip the
+  // PS /token round-trip (which would otherwise re-prompt for interaction).
+  // Display it immediately and mark the flow complete.
+  if (ctx.authTokenFromPending) {
+    addLogSection('Authorization')
+    addLogStep('Authorization Granted (from bootstrap)', 'success',
+      `<p>The PS returned an <code>auth_token</code> alongside the bootstrap_token in the pending response. Skipping the PS /token round trip.</p>` +
+      formatToken('Auth Token', ctx.authTokenFromPending, decodeJWTPayloadBrowser(ctx.authTokenFromPending)) +
+      anotherRequestButton()
+    )
+  }
+
+  return { result, authTokenFromPending: ctx.authTokenFromPending || null }
 }
 
 // Mirror of server-side deriveBindingKey: sha-256(ps_url + "|" + user_sub).
@@ -607,6 +627,11 @@ async function startAuthorization() {
     localStorage.removeItem('aauth-agent-token')
     const ok = await runBootstrap(psUrl, scope, hints)
     if (!ok) return
+    // If bootstrap already produced an auth_token (PS bundled it into the
+    // pending response), we're done — no need to hit PS /token, which
+    // would re-prompt for interaction on top of the consent we just gave.
+    if (ok.authTokenFromPending) return
+    // Otherwise fall through and fetch auth_token via PS /token.
   } else if (!agentTokenValid) {
     const refreshed = await runRefresh(scope)
     if (!refreshed) return
@@ -853,13 +878,17 @@ async function resumePendingInteraction() {
   const interactionStep = addLogStep('Resuming bootstrap interaction', 'pending',
     `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
   )
-  const token = await pollForBootstrapToken(saved.pollUrl, kp, publicJwk, interactionStep)
-  if (!token) return true
+  const pending = await pollForBootstrapToken(saved.pollUrl, kp, publicJwk, interactionStep)
+  if (!pending) return true
   addLogStep('Bootstrap Token Received', 'success',
-    formatToken('Bootstrap Token (aa-bootstrap+jwt)', token, decodeJWTPayloadBrowser(token))
+    formatToken('Bootstrap Token (aa-bootstrap+jwt)', pending.bootstrap_token, decodeJWTPayloadBrowser(pending.bootstrap_token))
   )
-  const res = await completeAgentServerBootstrap(token, publicJwk, kp)
-  if (res) {
+  const res = await completeAgentServerBootstrap(pending.bootstrap_token, publicJwk, kp, {
+    psUrl: saved.psUrl,
+    scope: saved.scope || 'openid',
+    authTokenFromPending: pending.auth_token,
+  })
+  if (res && !res.authTokenFromPending) {
     await runAuthorizationAgainstPS(saved.psUrl, saved.scope || 'openid', {})
   }
   return true

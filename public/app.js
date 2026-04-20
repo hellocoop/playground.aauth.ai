@@ -584,23 +584,35 @@ document.documentElement.classList.remove('show-auth')
 // pattern in playground.hello.dev; handy when testing a fresh bootstrap
 // or switching between person servers.
 document.getElementById('reset-btn')?.addEventListener('click', async () => {
-  if (!confirm('Reset playground? This clears your PS selection, scopes, agent binding, tokens, and WebAuthn linkage in this browser.')) return
-  // localStorage keys owned by the playground
-  const keys = [
-    SETTINGS_KEY,
-    'aauth-agent-name',
-    'aauth-agent-token',
-    'aauth-binding-key',
-    'aauth-binding-ps',
-    'aauth-binding-sub',
-    'aauth-session-id',
-    'aauth-has-passkey',
-    'aauth-pending-bootstrap',
-    'aauth-pending-authorize',
-    'aauth-pending-interaction',
-  ]
-  for (const k of keys) localStorage.removeItem(k)
+  if (!confirm('Reset playground? This clears your PS selection, scopes, agent binding, tokens, and WebAuthn linkage — on the agent server too, so the next Continue runs a full bootstrap (registering a new passkey).')) return
+
+  // Tell the server to drop the (PS, user) binding so the next bootstrap
+  // runs the register path (new WebAuthn credential, new aauth_sub).
+  // Without this, the server-side binding survives the client-side reset
+  // and the next bootstrap silently asserts against the old credential.
+  const savedBindingKey = localStorage.getItem('aauth-binding-key')
+  if (savedBindingKey) {
+    try {
+      await fetch('/binding/forget', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ binding_key: savedBindingKey }),
+      })
+    } catch { /* best-effort — still proceed with client reset */ }
+  }
+
+  // Sweep every playground-owned localStorage key. Prefix-matched so
+  // future additions are covered automatically.
+  const toRemove = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)
+    if (k && k.startsWith('aauth-')) toRemove.push(k)
+  }
+  for (const k of toRemove) localStorage.removeItem(k)
+
+  // Clear ephemeral keypair stored in IndexedDB.
   try { await clearKeyPair() } catch { /* IndexedDB may be unavailable */ }
+
   location.reload()
 })
 

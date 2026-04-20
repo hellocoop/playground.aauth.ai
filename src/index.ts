@@ -251,6 +251,25 @@ app.post('/bootstrap/verify', async (c) => {
   }))
 })
 
+// ── Binding delete (playground Reset button) ──
+//
+// Lets the client drop its server-side binding so the next bootstrap for
+// the same (PS, user) pair runs the full register path (fresh WebAuthn
+// credential, new aauth_sub). Without this, a stale binding on the
+// server forces the assert path forever and callers never see the
+// register ceremony again.
+//
+// SECURITY NOTE: intentionally unauthenticated — the binding_key is a
+// SHA-256 that only the owning client knows, and worst-case a leak just
+// forces that user to re-bootstrap. Acceptable for a playground; would
+// warrant an auth check in any real deployment.
+app.post('/binding/forget', async (c) => {
+  const body = await c.req.json<{ binding_key: string }>()
+  if (!body.binding_key) return c.json({ error: 'missing binding_key' }, 400)
+  await c.env.WEBAUTHN_KV.delete(`binding:${body.binding_key}`)
+  return c.json({ ok: true })
+})
+
 // ── Refresh: step 1 (WebAuthn assertion challenge) ──
 //
 // Client already holds a binding_key from an earlier bootstrap. It rotates

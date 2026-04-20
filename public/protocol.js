@@ -3063,14 +3063,18 @@ ${renderJSON(body)}`;
       psUrl,
       scope
     });
-    const bootstrapToken = await pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep);
-    if (!bootstrapToken) return false;
+    const pending = await pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep);
+    if (!pending) return false;
     addLogStep(
       "Bootstrap Token Received",
       "success",
-      formatToken("Bootstrap Token (aa-bootstrap+jwt)", bootstrapToken, decodeJWTPayloadBrowser(bootstrapToken))
+      formatToken("Bootstrap Token (aa-bootstrap+jwt)", pending.bootstrap_token, decodeJWTPayloadBrowser(pending.bootstrap_token))
     );
-    return await completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair);
+    return await completeAgentServerBootstrap(pending.bootstrap_token, publicJwk, keyPair, {
+      psUrl,
+      scope,
+      authTokenFromPending: pending.auth_token
+    });
   }
   async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep) {
     while (true) {
@@ -3093,7 +3097,7 @@ ${renderJSON(body)}`;
             return null;
           }
           resolveStep(interactionStep, "success", "User Consent Completed");
-          return token;
+          return { bootstrap_token: token, auth_token: body?.auth_token, raw: body };
         }
         if (res.status === 403) {
           clearPendingBootstrap();
@@ -3121,7 +3125,7 @@ ${renderJSON(body)}`;
       }
     }
   }
-  async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair) {
+  async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, ctx = {}) {
     clearPendingBootstrap();
     const agentLocal = localStorage.getItem("aauth-agent-name") || "";
     const challengeReqStep = addLogStep(
@@ -3242,7 +3246,15 @@ ${renderJSON(body)}`;
       "success",
       formatToken("Resource Token (aa-resource+jwt)", result.resource_token, result.resource_token_decoded)
     );
-    return { result };
+    if (ctx.authTokenFromPending) {
+      addLogSection("Authorization");
+      addLogStep(
+        "Authorization Granted (from bootstrap)",
+        "success",
+        `<p>The PS returned an <code>auth_token</code> alongside the bootstrap_token in the pending response. Skipping the PS /token round trip.</p>` + formatToken("Auth Token", ctx.authTokenFromPending, decodeJWTPayloadBrowser(ctx.authTokenFromPending)) + anotherRequestButton()
+      );
+    }
+    return { result, authTokenFromPending: ctx.authTokenFromPending || null };
   }
   async function deriveBindingKeyBrowser(psUrl, userSub) {
     const data = new TextEncoder().encode(`${psUrl}|${userSub}`);
@@ -3385,6 +3397,7 @@ ${renderJSON(body)}`;
       localStorage.removeItem("aauth-agent-token");
       const ok = await runBootstrap(psUrl, scope, hints);
       if (!ok) return;
+      if (ok.authTokenFromPending) return;
     } else if (!agentTokenValid) {
       const refreshed = await runRefresh(scope);
       if (!refreshed) return;
@@ -3619,15 +3632,19 @@ ${renderJSON(body)}`;
       "pending",
       `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
     );
-    const token = await pollForBootstrapToken(saved.pollUrl, kp, publicJwk, interactionStep);
-    if (!token) return true;
+    const pending = await pollForBootstrapToken(saved.pollUrl, kp, publicJwk, interactionStep);
+    if (!pending) return true;
     addLogStep(
       "Bootstrap Token Received",
       "success",
-      formatToken("Bootstrap Token (aa-bootstrap+jwt)", token, decodeJWTPayloadBrowser(token))
+      formatToken("Bootstrap Token (aa-bootstrap+jwt)", pending.bootstrap_token, decodeJWTPayloadBrowser(pending.bootstrap_token))
     );
-    const res = await completeAgentServerBootstrap(token, publicJwk, kp);
-    if (res) {
+    const res = await completeAgentServerBootstrap(pending.bootstrap_token, publicJwk, kp, {
+      psUrl: saved.psUrl,
+      scope: saved.scope || "openid",
+      authTokenFromPending: pending.auth_token
+    });
+    if (res && !res.authTokenFromPending) {
       await runAuthorizationAgainstPS(saved.psUrl, saved.scope || "openid", {});
     }
     return true;
