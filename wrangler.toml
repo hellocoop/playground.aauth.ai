@@ -1,6 +1,9 @@
 name = "playground-aauth-dev"
 main = "src/index.ts"
 compatibility_date = "2025-04-01"
+# @hellocoop/httpsig references `Buffer` in signature.js (a Node built-in);
+# nodejs_compat exposes it at the Worker runtime level.
+compatibility_flags = ["nodejs_compat"]
 
 [assets]
 directory = "public"
