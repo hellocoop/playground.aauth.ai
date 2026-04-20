@@ -279,51 +279,54 @@ async function runBootstrap(psUrl, scope, hints) {
 
 // Poll the PS pending URL for the bootstrap_token. Polls are signed with
 // the ephemeral key + sig=hwk (same key bound into the PS's record).
+//
+// We send `Prefer: wait=30` (RFC 7240 + IETF draft long-polling): the PS
+// holds the request for up to 30s and returns as soon as state changes.
+// On 202 we loop immediately; on network error we back off briefly so a
+// dead connection doesn't spin.
 async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep) {
-  return new Promise((resolve) => {
-    const intv = setInterval(async () => {
-      try {
-        const res = await sigFetch(absolutePollUrl, {
-          method: 'GET',
-          signingKey: publicJwk,
-          signingCryptoKey: keyPair.privateKey,
-          signatureKey: { type: 'hwk' },
-          components: ['@method', '@authority', '@path', 'signature-key'],
-        })
-        if (res.status === 200) {
-          clearInterval(intv)
-          clearPendingBootstrap()
-          const body = await res.json().catch(() => null)
-          const token = body?.bootstrap_token
-          if (!token) {
-            resolveStep(interactionStep, 'error', 'Pending returned no bootstrap_token')
-            addLogStep('Bad /pending response', 'error', formatResponse(200, null, body))
-            resolve(null)
-            return
-          }
-          resolveStep(interactionStep, 'success', 'User Consent Completed')
-          resolve(token)
-        } else if (res.status === 403) {
-          clearInterval(intv)
-          clearPendingBootstrap()
-          resolveStep(interactionStep, 'error', 'Consent Denied')
-          addLogStep('User denied consent', 'error',
-            formatResponse(403, null, await res.json().catch(() => null)) + anotherRequestButton())
-          resolve(null)
-        } else if (res.status === 408) {
-          clearInterval(intv)
-          clearPendingBootstrap()
-          resolveStep(interactionStep, 'error', 'Consent Timed Out')
-          addLogStep('Interaction timed out', 'error',
-            formatResponse(408, null, null) + anotherRequestButton())
-          resolve(null)
+  while (true) {
+    try {
+      const res = await sigFetch(absolutePollUrl, {
+        method: 'GET',
+        headers: { Prefer: 'wait=30' },
+        signingKey: publicJwk,
+        signingCryptoKey: keyPair.privateKey,
+        signatureKey: { type: 'hwk' },
+        components: ['@method', '@authority', '@path', 'signature-key'],
+      })
+      if (res.status === 200) {
+        clearPendingBootstrap()
+        const body = await res.json().catch(() => null)
+        const token = body?.bootstrap_token
+        if (!token) {
+          resolveStep(interactionStep, 'error', 'Pending returned no bootstrap_token')
+          addLogStep('Bad /pending response', 'error', formatResponse(200, null, body))
+          return null
         }
-        // 202 = keep polling
-      } catch (err) {
-        console.log('Bootstrap poll error:', err.message)
+        resolveStep(interactionStep, 'success', 'User Consent Completed')
+        return token
       }
-    }, 5000)
-  })
+      if (res.status === 403) {
+        clearPendingBootstrap()
+        resolveStep(interactionStep, 'error', 'Consent Denied')
+        addLogStep('User denied consent', 'error',
+          formatResponse(403, null, await res.json().catch(() => null)) + anotherRequestButton())
+        return null
+      }
+      if (res.status === 408) {
+        clearPendingBootstrap()
+        resolveStep(interactionStep, 'error', 'Consent Timed Out')
+        addLogStep('Interaction timed out', 'error',
+          formatResponse(408, null, null) + anotherRequestButton())
+        return null
+      }
+      // 202 → loop immediately (server already held up to 30s)
+    } catch (err) {
+      console.log('Bootstrap poll error:', err.message)
+      await new Promise((r) => setTimeout(r, 5000))
+    }
+  }
 }
 
 async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair) {
@@ -903,24 +906,29 @@ async function resumePendingAuthorize() {
 window.resumePendingAuthorize = resumePendingAuthorize
 
 // ── Auth-token polling (for PS /token interaction flow) ──
+//
+// Same long-poll pattern as pollForBootstrapToken: send `Prefer: wait=30`
+// and loop immediately on 202. Agent token + ephemeral key are snapshotted
+// once at start; the polling is signed with sig=jwt using them.
 
-function startAuthTokenPolling(pollUrl, baseUrl, interactionStep) {
+async function startAuthTokenPolling(pollUrl, baseUrl, interactionStep) {
   const absolutePollUrl = new URL(pollUrl, baseUrl).href
   const keyPair = window.aauthEphemeral.get()
   const agentToken = localStorage.getItem('aauth-agent-token')
   if (!keyPair || !agentToken) return
-  const intv = setInterval(async () => {
+  const signingJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
+
+  while (true) {
     try {
-      const signingJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
       const res = await sigFetch(absolutePollUrl, {
         method: 'GET',
+        headers: { Prefer: 'wait=30' },
         signingKey: signingJwk,
         signingCryptoKey: keyPair.privateKey,
         signatureKey: { type: 'jwt', jwt: agentToken },
         components: ['@method', '@authority', '@path', 'signature-key'],
       })
       if (res.status === 200) {
-        clearInterval(intv)
         clearPendingAuthorize()
         const body = await res.json()
         resolveStep(interactionStep, 'success', 'Interaction Completed')
@@ -928,19 +936,23 @@ function startAuthTokenPolling(pollUrl, baseUrl, interactionStep) {
           formatResponse(200, null, body) +
           (body.auth_token ? formatToken('Auth Token', body.auth_token, decodeJWTPayloadBrowser(body.auth_token)) : '') +
           anotherRequestButton())
-      } else if (res.status === 403 || res.status === 408) {
-        clearInterval(intv)
+        return
+      }
+      if (res.status === 403 || res.status === 408) {
         clearPendingAuthorize()
         const body = await res.json().catch(() => null)
         const label = res.status === 403 ? 'Interaction Denied' : 'Interaction Timed Out'
         resolveStep(interactionStep, 'error', label)
         addLogStep(`Authorization ${res.status === 403 ? 'Denied' : 'Timed Out'}`, 'error',
           formatResponse(res.status, null, body) + anotherRequestButton())
+        return
       }
+      // 202 → loop immediately (server already held up to 30s)
     } catch (err) {
       console.log('Poll error:', err.message)
+      await new Promise((r) => setTimeout(r, 5000))
     }
-  }, 5000)
+  }
 }
 
 function decodeJWTPayloadBrowser(jwt) {

@@ -3073,55 +3073,53 @@ ${renderJSON(body)}`;
     return await completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair);
   }
   async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep) {
-    return new Promise((resolve) => {
-      const intv = setInterval(async () => {
-        try {
-          const res = await (0, import_httpsig.fetch)(absolutePollUrl, {
-            method: "GET",
-            signingKey: publicJwk,
-            signingCryptoKey: keyPair.privateKey,
-            signatureKey: { type: "hwk" },
-            components: ["@method", "@authority", "@path", "signature-key"]
-          });
-          if (res.status === 200) {
-            clearInterval(intv);
-            clearPendingBootstrap();
-            const body = await res.json().catch(() => null);
-            const token = body?.bootstrap_token;
-            if (!token) {
-              resolveStep(interactionStep, "error", "Pending returned no bootstrap_token");
-              addLogStep("Bad /pending response", "error", formatResponse(200, null, body));
-              resolve(null);
-              return;
-            }
-            resolveStep(interactionStep, "success", "User Consent Completed");
-            resolve(token);
-          } else if (res.status === 403) {
-            clearInterval(intv);
-            clearPendingBootstrap();
-            resolveStep(interactionStep, "error", "Consent Denied");
-            addLogStep(
-              "User denied consent",
-              "error",
-              formatResponse(403, null, await res.json().catch(() => null)) + anotherRequestButton()
-            );
-            resolve(null);
-          } else if (res.status === 408) {
-            clearInterval(intv);
-            clearPendingBootstrap();
-            resolveStep(interactionStep, "error", "Consent Timed Out");
-            addLogStep(
-              "Interaction timed out",
-              "error",
-              formatResponse(408, null, null) + anotherRequestButton()
-            );
-            resolve(null);
+    while (true) {
+      try {
+        const res = await (0, import_httpsig.fetch)(absolutePollUrl, {
+          method: "GET",
+          headers: { Prefer: "wait=30" },
+          signingKey: publicJwk,
+          signingCryptoKey: keyPair.privateKey,
+          signatureKey: { type: "hwk" },
+          components: ["@method", "@authority", "@path", "signature-key"]
+        });
+        if (res.status === 200) {
+          clearPendingBootstrap();
+          const body = await res.json().catch(() => null);
+          const token = body?.bootstrap_token;
+          if (!token) {
+            resolveStep(interactionStep, "error", "Pending returned no bootstrap_token");
+            addLogStep("Bad /pending response", "error", formatResponse(200, null, body));
+            return null;
           }
-        } catch (err) {
-          console.log("Bootstrap poll error:", err.message);
+          resolveStep(interactionStep, "success", "User Consent Completed");
+          return token;
         }
-      }, 5e3);
-    });
+        if (res.status === 403) {
+          clearPendingBootstrap();
+          resolveStep(interactionStep, "error", "Consent Denied");
+          addLogStep(
+            "User denied consent",
+            "error",
+            formatResponse(403, null, await res.json().catch(() => null)) + anotherRequestButton()
+          );
+          return null;
+        }
+        if (res.status === 408) {
+          clearPendingBootstrap();
+          resolveStep(interactionStep, "error", "Consent Timed Out");
+          addLogStep(
+            "Interaction timed out",
+            "error",
+            formatResponse(408, null, null) + anotherRequestButton()
+          );
+          return null;
+        }
+      } catch (err) {
+        console.log("Bootstrap poll error:", err.message);
+        await new Promise((r) => setTimeout(r, 5e3));
+      }
+    }
   }
   async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair) {
     clearPendingBootstrap();
@@ -3676,23 +3674,23 @@ ${renderJSON(body)}`;
     return true;
   }
   window.resumePendingAuthorize = resumePendingAuthorize;
-  function startAuthTokenPolling(pollUrl, baseUrl, interactionStep) {
+  async function startAuthTokenPolling(pollUrl, baseUrl, interactionStep) {
     const absolutePollUrl = new URL(pollUrl, baseUrl).href;
     const keyPair = window.aauthEphemeral.get();
     const agentToken = localStorage.getItem("aauth-agent-token");
     if (!keyPair || !agentToken) return;
-    const intv = setInterval(async () => {
+    const signingJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    while (true) {
       try {
-        const signingJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
         const res = await (0, import_httpsig.fetch)(absolutePollUrl, {
           method: "GET",
+          headers: { Prefer: "wait=30" },
           signingKey: signingJwk,
           signingCryptoKey: keyPair.privateKey,
           signatureKey: { type: "jwt", jwt: agentToken },
           components: ["@method", "@authority", "@path", "signature-key"]
         });
         if (res.status === 200) {
-          clearInterval(intv);
           clearPendingAuthorize();
           const body = await res.json();
           resolveStep(interactionStep, "success", "Interaction Completed");
@@ -3701,8 +3699,9 @@ ${renderJSON(body)}`;
             "success",
             formatResponse(200, null, body) + (body.auth_token ? formatToken("Auth Token", body.auth_token, decodeJWTPayloadBrowser(body.auth_token)) : "") + anotherRequestButton()
           );
-        } else if (res.status === 403 || res.status === 408) {
-          clearInterval(intv);
+          return;
+        }
+        if (res.status === 403 || res.status === 408) {
           clearPendingAuthorize();
           const body = await res.json().catch(() => null);
           const label = res.status === 403 ? "Interaction Denied" : "Interaction Timed Out";
@@ -3712,11 +3711,13 @@ ${renderJSON(body)}`;
             "error",
             formatResponse(res.status, null, body) + anotherRequestButton()
           );
+          return;
         }
       } catch (err) {
         console.log("Poll error:", err.message);
+        await new Promise((r) => setTimeout(r, 5e3));
       }
-    }, 5e3);
+    }
   }
   function decodeJWTPayloadBrowser(jwt) {
     try {
