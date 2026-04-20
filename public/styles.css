@@ -473,18 +473,19 @@ a { color: var(--accent); }
   color: var(--muted);
 }
 
-/* Three-column scope grid, column-major so alphabetical order reads
-   top-to-bottom, left-to-right. `auto-fit` with minmax lets it collapse
-   to 2 or 1 column on narrow viewports. */
+/* Scope picker uses CSS multi-column so items flow top-to-bottom, then
+   left-to-right (column-major). Up to 3 columns; narrower viewports
+   collapse to fewer columns automatically via the column-width hint. */
 .scope-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  columns: 9rem 3;
   column-gap: 1.25rem;
-  row-gap: 0.4rem;
   margin-bottom: 1rem;
 }
 .scope-grid .checkbox-label {
-  margin: 0;
+  /* Keep each row intact within a single column — no breaking a label
+     across the column boundary. */
+  break-inside: avoid;
+  margin: 0 0 0.4rem 0;
 }
 .scope-required { color: var(--text); margin-left: 0.15rem; }
 .scope-experimental {
