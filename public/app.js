@@ -609,6 +609,12 @@ document.getElementById('reset-btn')?.addEventListener('click', async () => {
   if (restored) {
     const payload = decodeJWTPayload(agentToken)
     setAuthenticated(payload.sub)
+  } else if (localStorage.getItem('aauth-pending-bootstrap')) {
+    // First-bootstrap resume case: no agent_token exists yet, but the
+    // ephemeral key was saved to IndexedDB before the PS redirect. Load
+    // it so resumePendingInteraction can sign the /pending poll.
+    const kp = await loadKeyPair()
+    if (kp) ephemeralKeyPair = kp
   }
   // If the user is returning from a PS interaction (same-tab redirect
   // back to '/'), resume polling where we left off.
