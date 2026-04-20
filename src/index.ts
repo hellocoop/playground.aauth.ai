@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { verify as httpSigVerify } from '@hellocoop/httpsig'
 import type { Env, BootstrapTokenPayload, Binding, BootstrapTransaction, RefreshTransaction } from './types'
+import { verifySigJwt, ourJwksVerifier, psJwksVerifier } from './httpsig-verify'
 import {
   importSigningKey,
   getPublicJWK,
@@ -91,48 +91,42 @@ app.get('/.well-known/jwks.json', async (c) => {
 // WebAuthn platform authenticators — acknowledged gap, to be revisited.
 
 app.post('/bootstrap/challenge', async (c) => {
-  const body = await c.req.json<{ bootstrap_token: string; ephemeral_jwk: JsonWebKey; agent_local?: string }>()
+  // The request is signed with sig=jwt;jwt=<bootstrap_token>. httpSigVerify
+  // extracts bootstrap_token.cnf.jwk from Signature-Key and verifies the
+  // RFC 9421 signature against it (the PS already bound this key to the
+  // user at bootstrap consent), and we verify the bootstrap_token's own
+  // JWT signature against the PS JWKS via psJwksVerifier.
+  const verifyRes = await verifySigJwt(c, {
+    verifyInner: psJwksVerifier(),
+    // bootstrap_token has no iss constraint at this layer; we check aud
+    // below explicitly. allowExpired is false so we reject expired tokens
+    // via the exp check inside the helper.
+  })
+  if (verifyRes instanceof Response) return verifyRes
+
+  const bootstrapToken = verifyRes.innerJwt
+  const payload = verifyRes.innerPayload as unknown as BootstrapTokenPayload
+
+  let body: { bootstrap_token: string; ephemeral_jwk: JsonWebKey; agent_local?: string }
+  try {
+    body = JSON.parse(verifyRes.rawBody)
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400)
+  }
   if (!body.bootstrap_token || !body.ephemeral_jwk) {
     return c.json({ error: 'missing bootstrap_token or ephemeral_jwk' }, 400)
   }
-
-  // Decode (unverified) to find the PS issuer before we trust the signature.
-  const unverifiedPayload = decodeJWTPayload(body.bootstrap_token) as unknown as BootstrapTokenPayload
-  if (!unverifiedPayload.iss || !unverifiedPayload.dwk) {
-    return c.json({ error: 'bootstrap_token missing iss or dwk' }, 400)
-  }
-
-  // Fetch PS metadata to get its JWKS URI.
-  let psJwks: { keys: JsonWebKey[] }
-  let psMetadata: Record<string, unknown>
-  try {
-    const metaUrl = `${unverifiedPayload.iss}/.well-known/${unverifiedPayload.dwk}`
-    const metaRes = await fetch(metaUrl)
-    if (!metaRes.ok) return c.json({ error: `fetch PS metadata failed: ${metaRes.status}` }, 502)
-    psMetadata = (await metaRes.json()) as Record<string, unknown>
-    const jwksUri = psMetadata.jwks_uri as string | undefined
-    if (!jwksUri) return c.json({ error: 'PS metadata missing jwks_uri' }, 502)
-    const jwksRes = await fetch(jwksUri)
-    if (!jwksRes.ok) return c.json({ error: `fetch PS JWKS failed: ${jwksRes.status}` }, 502)
-    psJwks = (await jwksRes.json()) as { keys: JsonWebKey[] }
-  } catch (err) {
-    return c.json({ error: `PS discovery error: ${(err as Error).message}` }, 502)
-  }
-
-  // Verify signature.
-  let payload: BootstrapTokenPayload
-  try {
-    const res = await verifyJWT(body.bootstrap_token, psJwks)
-    payload = res.payload as unknown as BootstrapTokenPayload
-  } catch (err) {
-    return c.json({ error: `bootstrap_token signature invalid: ${(err as Error).message}` }, 401)
+  // Signature-Key JWT must equal body.bootstrap_token — they're the same
+  // token, but belt-and-suspenders check: don't let a caller sign with one
+  // token and submit a different one in the body.
+  if (body.bootstrap_token !== bootstrapToken) {
+    return c.json({ error: 'bootstrap_token mismatch between Signature-Key and body' }, 401)
   }
 
   // Claim checks.
   const origin = c.env.ORIGIN
   const now = Math.floor(Date.now() / 1000)
   if (payload.aud !== origin) return c.json({ error: `aud mismatch: expected ${origin}` }, 401)
-  if (!payload.exp || payload.exp < now) return c.json({ error: 'bootstrap_token expired' }, 401)
   if (!payload.iat || payload.iat > now + 60) return c.json({ error: 'bootstrap_token not yet valid' }, 401)
   if (!payload.sub) return c.json({ error: 'bootstrap_token missing sub' }, 401)
   if (!payload.cnf?.jwk) return c.json({ error: 'bootstrap_token missing cnf.jwk' }, 401)
@@ -203,13 +197,38 @@ app.post('/bootstrap/challenge', async (c) => {
 // ── Bootstrap: step 2 (verify WebAuthn + mint tokens) ──
 
 app.post('/bootstrap/verify', async (c) => {
-  const body = await c.req.json<{ bootstrap_tx_id: string; webauthn_response: any }>()
+  // Signed with sig=jwt;jwt=<bootstrap_token> — same scheme as /challenge.
+  // Verify the HTTP signature, then cross-check that the signing token's
+  // cnf.jwk matches the ephemeral stored in the transaction (ties this
+  // call to the same key that just went through /challenge).
+  const verifyRes = await verifySigJwt(c, {
+    verifyInner: psJwksVerifier(),
+  })
+  if (verifyRes instanceof Response) return verifyRes
+
+  let body: { bootstrap_tx_id: string; webauthn_response: any }
+  try {
+    body = JSON.parse(verifyRes.rawBody)
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400)
+  }
   if (!body.bootstrap_tx_id || !body.webauthn_response) {
     return c.json({ error: 'missing bootstrap_tx_id or webauthn_response' }, 400)
   }
 
   const tx = (await c.env.WEBAUTHN_KV.get(`bootstrap_tx:${body.bootstrap_tx_id}`, 'json')) as BootstrapTransaction | null
   if (!tx) return c.json({ error: 'transaction not found or expired' }, 400)
+
+  // The bootstrap_token's cnf.jwk must be the SAME ephemeral the tx was
+  // keyed to at /challenge. Prevents someone with a different valid
+  // bootstrap_token (for the same PS) from completing this /verify call.
+  const tokenCnf = (verifyRes.innerPayload as any)?.cnf?.jwk
+  if (!tokenCnf) return c.json({ error: 'bootstrap_token missing cnf.jwk' }, 401)
+  const tokenThumb = await computeJwkThumbprint(tokenCnf)
+  const txThumb = await computeJwkThumbprint(tx.ephemeral_jwk)
+  if (tokenThumb !== txThumb) {
+    return c.json({ error: 'bootstrap_token cnf does not match transaction' }, 401)
+  }
 
   const origin = c.env.ORIGIN
   const rpID = new URL(origin).hostname
@@ -250,17 +269,38 @@ app.post('/bootstrap/verify', async (c) => {
 //
 // Lets the client drop its server-side binding so the next bootstrap for
 // the same (PS, user) pair runs the full register path (fresh WebAuthn
-// credential, new aauth_sub). Without this, a stale binding on the
-// server forces the assert path forever and callers never see the
-// register ceremony again.
+// credential, new aauth_sub).
 //
-// SECURITY NOTE: intentionally unauthenticated — the binding_key is a
-// SHA-256 that only the owning client knows, and worst-case a leak just
-// forces that user to re-bootstrap. Acceptable for a playground; would
-// warrant an auth check in any real deployment.
+// Authenticated with sig=jwt;jwt=<agent_token>. The agent_token's sub
+// must match the binding's aauth_sub — you can only forget your own.
 app.post('/binding/forget', async (c) => {
-  const body = await c.req.json<{ binding_key: string }>()
+  const ourJwk = await getPublicJWK(c.env.SIGNING_KEY)
+  const origin = c.env.ORIGIN
+  const verifyRes = await verifySigJwt(c, {
+    verifyInner: ourJwksVerifier(ourJwk),
+    expectedIss: origin,
+    // Allow expired tokens — reset after your agent_token has lapsed is
+    // the common case.
+    allowExpired: true,
+  })
+  if (verifyRes instanceof Response) return verifyRes
+
+  let body: { binding_key: string }
+  try {
+    body = JSON.parse(verifyRes.rawBody)
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400)
+  }
   if (!body.binding_key) return c.json({ error: 'missing binding_key' }, 400)
+
+  const binding = await getBinding(c.env, body.binding_key)
+  // If already forgotten, no-op success (idempotent reset).
+  if (!binding) return c.json({ ok: true })
+
+  if (verifyRes.innerPayload?.sub !== binding.aauth_sub) {
+    return c.json({ error: 'agent_token sub does not match binding' }, 401)
+  }
+
   await c.env.WEBAUTHN_KV.delete(`binding:${body.binding_key}`)
   return c.json({ ok: true })
 })
@@ -272,13 +312,37 @@ app.post('/binding/forget', async (c) => {
 // fresh agent + resource tokens. No PS involvement.
 
 app.post('/refresh/challenge', async (c) => {
-  const body = await c.req.json<{ binding_key: string; new_ephemeral_jwk: JsonWebKey }>()
+  // Signed with sig=jwt;jwt=<agent_token>. The agent_token may be expired
+  // (that's the whole point of refresh), so allowExpired: true tells the
+  // helper to skip its exp check. httpSigVerify still needs the signature
+  // to verify against agent_token.cnf.jwk — proving PoP of the ephemeral.
+  const ourJwk = await getPublicJWK(c.env.SIGNING_KEY)
+  const origin = c.env.ORIGIN
+  const verifyRes = await verifySigJwt(c, {
+    verifyInner: ourJwksVerifier(ourJwk),
+    expectedIss: origin,
+    allowExpired: true,
+  })
+  if (verifyRes instanceof Response) return verifyRes
+
+  let body: { binding_key: string; new_ephemeral_jwk: JsonWebKey }
+  try {
+    body = JSON.parse(verifyRes.rawBody)
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400)
+  }
   if (!body.binding_key || !body.new_ephemeral_jwk) {
     return c.json({ error: 'missing binding_key or new_ephemeral_jwk' }, 400)
   }
 
   const binding = await getBinding(c.env, body.binding_key)
   if (!binding) return c.json({ error: 'binding not found' }, 404)
+
+  // Agent_token's sub must match the binding's aauth_sub — you can only
+  // refresh your own binding.
+  if (verifyRes.innerPayload?.sub !== binding.aauth_sub) {
+    return c.json({ error: 'agent_token sub does not match binding' }, 401)
+  }
 
   const rpID = new URL(c.env.ORIGIN).hostname
   const options = await createAuthenticationOptionsForBinding(c.env, binding, rpID)
@@ -299,7 +363,23 @@ app.post('/refresh/challenge', async (c) => {
 })
 
 app.post('/refresh/verify', async (c) => {
-  const body = await c.req.json<{ refresh_tx_id: string; webauthn_response: any }>()
+  // Signed with sig=jwt;jwt=<agent_token>, same shape as /challenge.
+  // allowExpired: true for the same reason.
+  const ourJwk = await getPublicJWK(c.env.SIGNING_KEY)
+  const origin = c.env.ORIGIN
+  const verifyRes = await verifySigJwt(c, {
+    verifyInner: ourJwksVerifier(ourJwk),
+    expectedIss: origin,
+    allowExpired: true,
+  })
+  if (verifyRes instanceof Response) return verifyRes
+
+  let body: { refresh_tx_id: string; webauthn_response: any }
+  try {
+    body = JSON.parse(verifyRes.rawBody)
+  } catch {
+    return c.json({ error: 'invalid JSON body' }, 400)
+  }
   if (!body.refresh_tx_id || !body.webauthn_response) {
     return c.json({ error: 'missing refresh_tx_id or webauthn_response' }, 400)
   }
@@ -310,7 +390,11 @@ app.post('/refresh/verify', async (c) => {
   const binding = await getBinding(c.env, tx.binding_key)
   if (!binding) return c.json({ error: 'binding not found' }, 404)
 
-  const origin = c.env.ORIGIN
+  // Agent_token's sub must match the binding we're refreshing.
+  if (verifyRes.innerPayload?.sub !== binding.aauth_sub) {
+    return c.json({ error: 'agent_token sub does not match binding' }, 401)
+  }
+
   const rpID = new URL(origin).hostname
 
   try {
@@ -395,50 +479,24 @@ async function mintAgentAndResource(
 // ── Authorization (resource token issuance) ──
 
 app.post('/authorize', async (c) => {
-  // Read the body as text — c.req.json() would consume the stream before
-  // httpsig.verify() sees it (needed for content-digest when present).
-  const rawBody = await c.req.text()
-
-  // httpsig.verify extracts agent_token.cnf.jwk from Signature-Key and uses
-  // it to verify the RFC 9421 signature. It does NOT verify the token's own
-  // JWT signature — we do that separately below against our JWKS.
-  const url = new URL(c.req.url)
-  const sigResult = await httpSigVerify({
-    method: c.req.method,
-    authority: url.host,
-    path: url.pathname,
-    query: url.search.replace(/^\?/, ''),
-    headers: c.req.raw.headers,
-    body: rawBody,
-  })
-  if (!sigResult.verified) {
-    return c.json({ error: `signature verification failed: ${sigResult.error || 'unknown'}` }, 401)
-  }
-  if (sigResult.keyType !== 'jwt' || !sigResult.jwt) {
-    return c.json({ error: 'Signature-Key must use sig=jwt' }, 401)
-  }
-
-  // Verify the agent_token's JWT signature against our own JWKS — proves we
-  // issued it. Together with the httpsig check above, this proves both that
-  // the token is ours and that the caller holds the cnf-bound ephemeral key.
-  const agentToken = sigResult.jwt.raw
-  const origin = c.env.ORIGIN
+  // sig=jwt;jwt=<agent_token>. Verify the HTTP signature against
+  // agent_token.cnf.jwk, then verify the agent_token itself against our
+  // own JWKS — proves both that the token is ours and that the caller
+  // holds the cnf-bound ephemeral.
   const ourJwk = await getPublicJWK(c.env.SIGNING_KEY)
-  let agentPayload: Record<string, unknown>
-  try {
-    const { payload } = await verifyJWT(agentToken, { keys: [ourJwk] })
-    agentPayload = payload as Record<string, unknown>
-  } catch (err) {
-    return c.json({ error: `agent_token invalid: ${(err as Error).message}` }, 401)
-  }
-  if (agentPayload.iss !== origin) return c.json({ error: 'agent_token iss mismatch' }, 401)
-  const now = Math.floor(Date.now() / 1000)
-  if (!agentPayload.exp || (agentPayload.exp as number) < now) return c.json({ error: 'agent_token expired' }, 401)
+  const origin = c.env.ORIGIN
+  const verifyRes = await verifySigJwt(c, {
+    verifyInner: ourJwksVerifier(ourJwk),
+    expectedIss: origin,
+  })
+  if (verifyRes instanceof Response) return verifyRes
 
-  // Now parse the body we already read.
+  const agentToken = verifyRes.innerJwt
+  const agentPayload = verifyRes.innerPayload as Record<string, unknown>
+
   let body: { ps: string; scope: string }
   try {
-    body = JSON.parse(rawBody) as { ps: string; scope: string }
+    body = JSON.parse(verifyRes.rawBody) as { ps: string; scope: string }
   } catch {
     return c.json({ error: 'invalid JSON body' }, 400)
   }
@@ -500,6 +558,7 @@ app.post('/authorize', async (c) => {
 
   const privateKey = await importSigningKey(c.env.SIGNING_KEY)
 
+  const now = Math.floor(Date.now() / 1000)
   const rtHeader = {
     alg: 'EdDSA',
     typ: 'aa-resource+jwt',
@@ -535,41 +594,18 @@ app.post('/authorize', async (c) => {
 // Keeps the demo honest — the user sees a scope go end-to-end and actually
 // gate something, rather than hanging unused in a consent screen.
 app.get('/api/demo', async (c) => {
-  const auth = c.req.header('Authorization') || ''
-  const m = auth.match(/^Bearer\s+(.+)$/)
-  if (!m) return c.json({ error: 'missing bearer auth_token' }, 401)
-  const token = m[1]
-
-  // Decode (unverified) to find iss → then fetch JWKS → verify.
-  let unverified: Record<string, unknown>
-  try {
-    unverified = decodeJWTPayload(token)
-  } catch {
-    return c.json({ error: 'malformed auth_token' }, 401)
-  }
-  const iss = unverified.iss as string | undefined
-  if (!iss) return c.json({ error: 'auth_token missing iss' }, 401)
-
-  let payload: Record<string, unknown>
-  try {
-    const metaRes = await fetch(`${iss}/.well-known/aauth-person.json`)
-    if (!metaRes.ok) return c.json({ error: `fetch PS metadata failed: ${metaRes.status}` }, 502)
-    const meta = (await metaRes.json()) as Record<string, unknown>
-    const jwksUri = meta.jwks_uri as string | undefined
-    if (!jwksUri) return c.json({ error: 'PS metadata missing jwks_uri' }, 502)
-    const jwksRes = await fetch(jwksUri)
-    if (!jwksRes.ok) return c.json({ error: `fetch PS JWKS failed: ${jwksRes.status}` }, 502)
-    const jwks = (await jwksRes.json()) as { keys: JsonWebKey[] }
-    const verified = await verifyJWT(token, jwks)
-    payload = verified.payload as Record<string, unknown>
-  } catch (err) {
-    return c.json({ error: `auth_token verification failed: ${(err as Error).message}` }, 401)
-  }
-
+  // sig=jwt;jwt=<auth_token>. httpSigVerify extracts auth_token.cnf.jwk
+  // from Signature-Key and verifies the RFC 9421 signature — proving
+  // possession of the ephemeral. psJwksVerifier fetches the auth_token's
+  // issuer JWKS (the PS) and verifies the token's own JWT signature.
   const origin = c.env.ORIGIN
+  const verifyRes = await verifySigJwt(c, {
+    verifyInner: psJwksVerifier(),
+  })
+  if (verifyRes instanceof Response) return verifyRes
+
+  const payload = verifyRes.innerPayload as Record<string, unknown>
   if (payload.aud !== origin) return c.json({ error: 'auth_token aud mismatch' }, 401)
-  const now = Math.floor(Date.now() / 1000)
-  if (!payload.exp || (payload.exp as number) < now) return c.json({ error: 'auth_token expired' }, 401)
 
   const scopeStr = typeof payload.scope === 'string' ? payload.scope : ''
   const scopes = scopeStr.split(/\s+/).filter(Boolean)

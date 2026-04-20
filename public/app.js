@@ -407,8 +407,17 @@ function applyBootstrapResult(result) {
 }
 window.aauthApplyBootstrapResult = applyBootstrapResult
 
-// Exposed for protocol.js to rotate the ephemeral key before bootstrap/refresh
-// and retrieve it for signing.
+// Exposed for protocol.js to manage the ephemeral key.
+//
+// `rotate` is the simple case (bootstrap): generate + save + make current.
+//
+// `stage` / `commitStaged` splits that into two phases for /refresh: we
+// need to sign /refresh/challenge and /refresh/verify with the OLD
+// ephemeral (which matches agent_token.cnf), while also handing the
+// NEW public key to the server so the refreshed tokens bind to it.
+// Only after /refresh/verify succeeds do we promote the staged key.
+let stagedKeyPair = null
+
 window.aauthEphemeral = {
   rotate: async () => {
     const kp = await rotateEphemeralKeyPair()
@@ -417,6 +426,22 @@ window.aauthEphemeral = {
       publicJwk: await crypto.subtle.exportKey('jwk', kp.publicKey),
     }
   },
+  stage: async () => {
+    const kp = await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify'])
+    stagedKeyPair = kp
+    return {
+      keyPair: kp,
+      publicJwk: await crypto.subtle.exportKey('jwk', kp.publicKey),
+    }
+  },
+  commitStaged: async () => {
+    if (!stagedKeyPair) return null
+    ephemeralKeyPair = stagedKeyPair
+    await saveKeyPair(stagedKeyPair)
+    stagedKeyPair = null
+    return ephemeralKeyPair
+  },
+  discardStaged: () => { stagedKeyPair = null },
   get: () => ephemeralKeyPair,
   getPublicJwk: async () => ephemeralKeyPair ? crypto.subtle.exportKey('jwk', ephemeralKeyPair.publicKey) : null,
 }
@@ -702,13 +727,20 @@ document.getElementById('reset-btn')?.addEventListener('click', async () => {
   // runs the register path (new WebAuthn credential, new aauth_sub).
   // Without this, the server-side binding survives the client-side reset
   // and the next bootstrap silently asserts against the old credential.
+  // /binding/forget must be signed with sig=jwt + agent_token so the
+  // server can authorize the deletion (agent_token.sub must match the
+  // binding's aauth_sub). If we don't have both a saved agent_token and
+  // the ephemeral that signs for it, skip the server call — client
+  // reset still happens, the server binding just stays until it's
+  // orphaned by expiry. Not ideal for "fresh register" UX but safe.
   const savedBindingKey = localStorage.getItem('aauth-binding-key')
-  if (savedBindingKey) {
+  const savedAgentToken = localStorage.getItem('aauth-agent-token')
+  if (savedBindingKey && savedAgentToken && window.aauthSigFetch) {
     try {
-      await fetch('/binding/forget', {
+      await window.aauthSigFetch('/binding/forget', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ binding_key: savedBindingKey }),
+        jwt: savedAgentToken,
       })
     } catch { /* best-effort — still proceed with client reset */ }
   }

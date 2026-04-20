@@ -27,6 +27,32 @@ function trace(label, extra) {
   try { console.log(`[aauth] ${label}`, extra ?? '') } catch {}
 }
 
+// Signed fetch helper exposed for app.js (which can't import sigFetch
+// directly since it isn't bundled). Signs with sig=jwt using the current
+// ephemeral + a caller-supplied JWT (agent_token or auth_token).
+window.aauthSigFetch = async function aauthSigFetch(url, { method = 'GET', headers = {}, body, jwt } = {}) {
+  const keyPair = window.aauthEphemeral.get()
+  if (!keyPair) throw new Error('no ephemeral key available to sign with')
+  if (!jwt) throw new Error('jwt required for sig=jwt scheme')
+  const signingKey = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
+  const hasBody = body !== undefined && body !== null
+  const components = hasBody
+    ? ['@method', '@authority', '@path', 'content-type', 'signature-key']
+    : ['@method', '@authority', '@path', 'signature-key']
+  const mergedHeaders = hasBody
+    ? { 'Content-Type': 'application/json', ...headers }
+    : { ...headers }
+  return sigFetch(url, {
+    method,
+    headers: mergedHeaders,
+    body: hasBody ? body : undefined,
+    signingKey,
+    signingCryptoKey: keyPair.privateKey,
+    signatureKey: { type: 'jwt', jwt },
+    components,
+  })
+}
+
 // ── Log rendering ──
 
 function clearLog() {
@@ -422,8 +448,15 @@ async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, 
   // Lazy generation: no name exists on a fresh install or post-Reset
   // until we actually need one here.
   const agentLocal = window.aauthGetOrGenerateAgentName()
-  const challengeReqStep = addLogStep('POST /bootstrap/challenge', 'pending',
-    formatRequest('POST', '/bootstrap/challenge', { 'Content-Type': 'application/json' }, {
+  const challengeEndpoint = `${window.location.origin}/bootstrap/challenge`
+  const challengeBody = { bootstrap_token: bootstrapToken, ephemeral_jwk: publicJwk, agent_local: agentLocal }
+  const challengeReqStep = addLogStep(`POST ${new URL(challengeEndpoint).pathname}`, 'pending',
+    formatRequest('POST', challengeEndpoint, {
+      'Content-Type': 'application/json',
+      'Signature-Input': 'sig=("@method" "@authority" "@path" "content-type" "signature-key");created=...',
+      'Signature': 'sig=:...:',
+      'Signature-Key': `sig=jwt;jwt="${bootstrapToken.substring(0, 20)}..."`,
+    }, {
       bootstrap_token: bootstrapToken.substring(0, 20) + '...',
       ephemeral_jwk: publicJwk,
       agent_local: agentLocal,
@@ -432,10 +465,18 @@ async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, 
 
   let challengeData
   try {
-    const res = await fetch('/bootstrap/challenge', {
+    // Signed with sig=jwt using the bootstrap_token itself: the PS set
+    // bootstrap_token.cnf.jwk = our ephemeral, so the library verifies the
+    // HTTP signature against that key, which we hold privately. Acts as a
+    // transient agent_token for this one hop.
+    const res = await sigFetch(challengeEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bootstrap_token: bootstrapToken, ephemeral_jwk: publicJwk, agent_local: agentLocal }),
+      body: JSON.stringify(challengeBody),
+      signingKey: publicJwk,
+      signingCryptoKey: keyPair.privateKey,
+      signatureKey: { type: 'jwt', jwt: bootstrapToken },
+      components: ['@method', '@authority', '@path', 'content-type', 'signature-key'],
     })
     challengeData = await res.json()
     if (!res.ok) {
@@ -477,9 +518,19 @@ async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, 
     `<p>Browser returned a WebAuthn ${challengeData.webauthn_type === 'register' ? 'attestation' : 'assertion'} bound to the challenge.</p>`
   )
 
-  // POST /bootstrap/verify.
-  const verifyStep = addLogStep('POST /bootstrap/verify', 'pending',
-    formatRequest('POST', '/bootstrap/verify', { 'Content-Type': 'application/json' }, {
+  // POST /bootstrap/verify — also signed with sig=jwt + bootstrap_token.
+  const verifyEndpoint = `${window.location.origin}/bootstrap/verify`
+  const verifyBody = {
+    bootstrap_tx_id: challengeData.bootstrap_tx_id,
+    webauthn_response: webauthnResponse,
+  }
+  const verifyStep = addLogStep(`POST ${new URL(verifyEndpoint).pathname}`, 'pending',
+    formatRequest('POST', verifyEndpoint, {
+      'Content-Type': 'application/json',
+      'Signature-Input': 'sig=("@method" "@authority" "@path" "content-type" "signature-key");created=...',
+      'Signature': 'sig=:...:',
+      'Signature-Key': `sig=jwt;jwt="${bootstrapToken.substring(0, 20)}..."`,
+    }, {
       bootstrap_tx_id: challengeData.bootstrap_tx_id,
       webauthn_response: '(credential)',
     })
@@ -487,13 +538,14 @@ async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, 
 
   let result
   try {
-    const res = await fetch('/bootstrap/verify', {
+    const res = await sigFetch(verifyEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        bootstrap_tx_id: challengeData.bootstrap_tx_id,
-        webauthn_response: webauthnResponse,
-      }),
+      body: JSON.stringify(verifyBody),
+      signingKey: publicJwk,
+      signingCryptoKey: keyPair.privateKey,
+      signatureKey: { type: 'jwt', jwt: bootstrapToken },
+      components: ['@method', '@authority', '@path', 'content-type', 'signature-key'],
     })
     result = await res.json()
     if (!res.ok) {
@@ -563,36 +615,62 @@ async function deriveBindingKeyBrowser(psUrl, userSub) {
 // resource token pair under a rotated ephemeral key. No PS involvement.
 
 // No scope parameter: see runBootstrap above.
+//
+// Ephemeral lifecycle: we STAGE a new keypair (not yet persisted) and
+// sign both /refresh/challenge and /refresh/verify with the OLD keypair
+// (which matches agent_token.cnf.jwk). The server mints fresh tokens
+// bound to the new pubkey; only on success do we commit the staged key
+// and replace the old one in IndexedDB. If anything fails, the old key
+// stays active and the agent_token (if still valid) remains usable.
 async function runRefresh() {
   const { bindingKey } = window.aauthBinding.get()
   if (!bindingKey) return null
 
+  const oldKeyPair = window.aauthEphemeral.get()
+  const agentToken = localStorage.getItem('aauth-agent-token')
+  if (!oldKeyPair || !agentToken) {
+    addLogStep('Cannot refresh', 'error',
+      '<p>No ephemeral key + agent_token pair present locally. Full bootstrap required.</p>')
+    return null
+  }
+
   addLogSection('Refresh')
 
-  const { keyPair, publicJwk } = await window.aauthEphemeral.rotate()
-  addLogStep('Generate ephemeral key', 'success',
-    `<p>Rotated ephemeral Ed25519 keypair; new public key will be bound into the refreshed tokens.</p>` +
-    tokenWrap(renderJSON(publicJwk))
+  const { publicJwk: newPublicJwk } = await window.aauthEphemeral.stage()
+  addLogStep('Stage new ephemeral key', 'success',
+    `<p>Generated a fresh Ed25519 keypair but did not persist it. The current /refresh calls are signed with the <em>old</em> ephemeral (bound to the existing <code>agent_token.cnf.jwk</code>); the new key will be committed only after <code>/refresh/verify</code> succeeds.</p>` +
+    tokenWrap(renderJSON(newPublicJwk))
   )
 
-  const reqStep = addLogStep('POST /refresh/challenge', 'pending',
-    formatRequest('POST', '/refresh/challenge', { 'Content-Type': 'application/json' }, {
-      binding_key: bindingKey,
-      new_ephemeral_jwk: publicJwk,
-    })
+  const oldSigningJwk = await crypto.subtle.exportKey('jwk', oldKeyPair.publicKey)
+  const refreshChallengeEndpoint = `${window.location.origin}/refresh/challenge`
+  const refreshChallengeBody = { binding_key: bindingKey, new_ephemeral_jwk: newPublicJwk }
+
+  const reqStep = addLogStep(`POST ${new URL(refreshChallengeEndpoint).pathname}`, 'pending',
+    formatRequest('POST', refreshChallengeEndpoint, {
+      'Content-Type': 'application/json',
+      'Signature-Input': 'sig=("@method" "@authority" "@path" "content-type" "signature-key");created=...',
+      'Signature': 'sig=:...:',
+      'Signature-Key': `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`,
+    }, refreshChallengeBody)
   )
 
   let challengeData
   try {
-    const res = await fetch('/refresh/challenge', {
+    const res = await sigFetch(refreshChallengeEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ binding_key: bindingKey, new_ephemeral_jwk: publicJwk }),
+      body: JSON.stringify(refreshChallengeBody),
+      signingKey: oldSigningJwk,
+      signingCryptoKey: oldKeyPair.privateKey,
+      signatureKey: { type: 'jwt', jwt: agentToken },
+      components: ['@method', '@authority', '@path', 'content-type', 'signature-key'],
     })
     challengeData = await res.json()
     if (!res.ok) {
       resolveStep(reqStep, 'error', `POST /refresh/challenge \u2192 ${res.status}`)
       addLogStep('Refresh rejected', 'error', formatResponse(res.status, null, challengeData))
+      window.aauthEphemeral.discardStaged()
       // Binding is stale — drop it so the next Continue does a full bootstrap.
       window.aauthBinding.clearBinding()
       return null
@@ -602,6 +680,7 @@ async function runRefresh() {
     resolveStep(reqStep, 'error', 'POST /refresh/challenge (network error)')
     addLogStep('Refresh network error', 'error',
       `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`)
+    window.aauthEphemeral.discardStaged()
     return null
   }
 
@@ -613,14 +692,25 @@ async function runRefresh() {
   } catch (err) {
     addLogStep('WebAuthn assertion failed', 'error',
       `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`)
+    window.aauthEphemeral.discardStaged()
     return null
   }
 
   addLogStep('WebAuthn Assertion Completed', 'success',
     `<p>Browser returned a WebAuthn assertion against the stored credential for this binding.</p>`)
 
-  const verifyStep = addLogStep('POST /refresh/verify', 'pending',
-    formatRequest('POST', '/refresh/verify', { 'Content-Type': 'application/json' }, {
+  const refreshVerifyEndpoint = `${window.location.origin}/refresh/verify`
+  const refreshVerifyBody = {
+    refresh_tx_id: challengeData.refresh_tx_id,
+    webauthn_response: webauthnResponse,
+  }
+  const verifyStep = addLogStep(`POST ${new URL(refreshVerifyEndpoint).pathname}`, 'pending',
+    formatRequest('POST', refreshVerifyEndpoint, {
+      'Content-Type': 'application/json',
+      'Signature-Input': 'sig=("@method" "@authority" "@path" "content-type" "signature-key");created=...',
+      'Signature': 'sig=:...:',
+      'Signature-Key': `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`,
+    }, {
       refresh_tx_id: challengeData.refresh_tx_id,
       webauthn_response: '(assertion)',
     })
@@ -628,18 +718,20 @@ async function runRefresh() {
 
   let result
   try {
-    const res = await fetch('/refresh/verify', {
+    const res = await sigFetch(refreshVerifyEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        refresh_tx_id: challengeData.refresh_tx_id,
-        webauthn_response: webauthnResponse,
-      }),
+      body: JSON.stringify(refreshVerifyBody),
+      signingKey: oldSigningJwk,
+      signingCryptoKey: oldKeyPair.privateKey,
+      signatureKey: { type: 'jwt', jwt: agentToken },
+      components: ['@method', '@authority', '@path', 'content-type', 'signature-key'],
     })
     result = await res.json()
     if (!res.ok) {
       resolveStep(verifyStep, 'error', `POST /refresh/verify \u2192 ${res.status}`)
       addLogStep('Refresh verify failed', 'error', formatResponse(res.status, null, result))
+      window.aauthEphemeral.discardStaged()
       return null
     }
     resolveStep(verifyStep, 'success', 'POST /refresh/verify \u2192 200')
@@ -647,8 +739,12 @@ async function runRefresh() {
     resolveStep(verifyStep, 'error', 'POST /refresh/verify (network error)')
     addLogStep('Refresh verify network error', 'error',
       `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`)
+    window.aauthEphemeral.discardStaged()
     return null
   }
+
+  // Server accepted. Promote the staged ephemeral to current + persist it.
+  await window.aauthEphemeral.commitStaged()
 
   window.aauthApplyBootstrapResult(result)
   addLogStep('Agent Token Refreshed', 'success',
@@ -1158,16 +1254,28 @@ document.addEventListener('click', (e) => {
 
 async function callDemoResourceApi(authToken) {
   const endpoint = `${window.location.origin}/api/demo`
-  const reqStep = addLogStep(`GET /api/demo`, 'pending',
-    `<p>Calling the resource's demo endpoint with the <code>auth_token</code> as a bearer credential. The endpoint verifies the token against the PS's JWKS and checks that <code>scope</code> covers <code>playground.demo</code>.</p>` +
+  const keyPair = window.aauthEphemeral.get()
+  if (!keyPair) {
+    addLogStep('Demo API Call Failed', 'error',
+      '<p>Missing ephemeral key — cannot sign /api/demo.</p>')
+    return
+  }
+  const reqStep = addLogStep(`GET ${new URL(endpoint).pathname}`, 'pending',
+    `<p>Calling the resource's demo endpoint. The request is signed per RFC 9421 with <code>sig=jwt;jwt="&lt;auth_token&gt;"</code>: the server verifies the HTTP signature against <code>auth_token.cnf.jwk</code> (our ephemeral), then separately verifies the auth_token itself against the PS JWKS and checks that <code>scope</code> covers <code>playground.demo</code>.</p>` +
     formatRequest('GET', endpoint, {
-      'Authorization': `Bearer ${authToken?.substring(0, 20)}...`,
+      'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
+      'Signature': 'sig=:...:',
+      'Signature-Key': `sig=jwt;jwt="${authToken?.substring(0, 20)}..."`,
     }, null)
   )
   try {
-    const res = await fetch(endpoint, {
+    const signingJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
+    const res = await sigFetch(endpoint, {
       method: 'GET',
-      headers: { 'Authorization': `Bearer ${authToken}` },
+      signingKey: signingJwk,
+      signingCryptoKey: keyPair.privateKey,
+      signatureKey: { type: 'jwt', jwt: authToken },
+      components: ['@method', '@authority', '@path', 'signature-key'],
     })
     const body = await res.json().catch(() => null)
     resolveStep(reqStep, res.ok ? 'success' : 'error', `GET /api/demo \u2192 ${res.status}`)
