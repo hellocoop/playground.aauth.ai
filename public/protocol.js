@@ -3030,6 +3030,7 @@
   };
 
   // client/protocol.js
+  var POLL_WAIT_SECONDS = 10;
   function copy(path) {
     return path.split(".").reduce((o, k) => o == null ? void 0 : o[k], log_text_default);
   }
@@ -3349,7 +3350,7 @@ ${renderJSON(body)}`;
       fmt(copy("bootstrap.ps_pending_longpoll.label_template"), { path: pollPath }),
       "pending",
       desc("bootstrap.ps_pending_longpoll") + formatRequest("GET", absolutePollUrl, {
-        "Prefer": "wait=30",
+        "Prefer": `wait=${POLL_WAIT_SECONDS}`,
         "Signature-Input": 'sig=("@method" "@authority" "@path" "signature-key");created=...',
         "Signature": "sig=:...:",
         "Signature-Key": `sig=hwk;kty="${publicJwk.kty}";crv="${publicJwk.crv}";x="${publicJwk.x}"`
@@ -3375,14 +3376,24 @@ ${renderJSON(body)}`;
     );
     return await completeAgentServerBootstrap(pending.bootstrap_token, publicJwk, keyPair, { psUrl });
   }
+  var _bootstrapPollRunning = false;
   async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep, pollStep) {
+    if (_bootstrapPollRunning) return null;
+    _bootstrapPollRunning = true;
+    try {
+      return await _pollForBootstrapTokenImpl(absolutePollUrl, keyPair, publicJwk, interactionStep, pollStep);
+    } finally {
+      _bootstrapPollRunning = false;
+    }
+  }
+  async function _pollForBootstrapTokenImpl(absolutePollUrl, keyPair, publicJwk, interactionStep, pollStep) {
     const pollPath = new URL(absolutePollUrl).pathname;
     if (!pollStep) {
       pollStep = addLogStep(
         fmt(copy("bootstrap.ps_pending_longpoll.label_template"), { path: pollPath }),
         "pending",
-        `<p>Agent waits for consent; <code>Prefer: wait=30</code> holds the connection open so the PS can push state immediately instead of tight polling.</p>` + formatRequest("GET", absolutePollUrl, {
-          "Prefer": "wait=30",
+        `<p>Agent waits for consent; <code>Prefer: wait=${POLL_WAIT_SECONDS}</code> holds the connection open so the PS can push state immediately instead of tight polling.</p>` + formatRequest("GET", absolutePollUrl, {
+          "Prefer": `wait=${POLL_WAIT_SECONDS}`,
           "Signature-Input": 'sig=("@method" "@authority" "@path" "signature-key");created=...',
           "Signature": "sig=:...:",
           "Signature-Key": `sig=hwk;kty="${publicJwk.kty}";crv="${publicJwk.crv}";x="${publicJwk.x}"`
@@ -3393,7 +3404,7 @@ ${renderJSON(body)}`;
       try {
         const res = await (0, import_httpsig.fetch)(absolutePollUrl, {
           method: "GET",
-          headers: { Prefer: "wait=30" },
+          headers: { Prefer: `wait=${POLL_WAIT_SECONDS}` },
           signingKey: publicJwk,
           signingCryptoKey: keyPair.privateKey,
           signatureKey: { type: "hwk" },
@@ -3424,6 +3435,17 @@ ${renderJSON(body)}`;
             copy("bootstrap.ps_user_denied.label"),
             "error",
             formatResponse(403, null, await res.json().catch(() => null)) + anotherRequestButton()
+          );
+          return null;
+        }
+        if (res.status === 404) {
+          clearPendingBootstrap();
+          resolveStep(pollStep, "error", fmt(copy("bootstrap.ps_pending_longpoll.label_resolved_template"), { path: pollPath, status: 404 }));
+          resolveStep(interactionStep, "error", "Interaction Expired");
+          addLogStep(
+            "Interaction expired",
+            "error",
+            formatResponse(404, null, await res.json().catch(() => null)) + anotherRequestButton()
           );
           return null;
         }
@@ -3868,7 +3890,7 @@ ${renderJSON(body)}`;
             fmt(copy("authorize.ps_pending_longpoll.label_template"), { path: new URL(absolutePollUrl).pathname }),
             "pending",
             desc("authorize.ps_pending_longpoll") + formatRequest("GET", absolutePollUrl, {
-              "Prefer": "wait=30",
+              "Prefer": `wait=${POLL_WAIT_SECONDS}`,
               "Signature-Input": 'sig=("@method" "@authority" "@path" "signature-key");created=...',
               "Signature": "sig=:...:",
               "Signature-Key": `sig=jwt;jwt="${agentTokenForLog?.substring(0, 20)}..."`
@@ -4096,7 +4118,7 @@ ${renderJSON(body)}`;
         fmt(copy("authorize.ps_pending_longpoll.label_template"), { path: pollPath }),
         "pending",
         desc("authorize.ps_pending_longpoll") + formatRequest("GET", absolutePollUrl, {
-          "Prefer": "wait=30",
+          "Prefer": `wait=${POLL_WAIT_SECONDS}`,
           "Signature-Input": 'sig=("@method" "@authority" "@path" "signature-key");created=...',
           "Signature": "sig=:...:",
           "Signature-Key": `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`
@@ -4109,7 +4131,7 @@ ${renderJSON(body)}`;
       try {
         const res = await (0, import_httpsig.fetch)(absolutePollUrl, {
           method: "GET",
-          headers: { Prefer: "wait=30" },
+          headers: { Prefer: `wait=${POLL_WAIT_SECONDS}` },
           signingKey: signingJwk,
           signingCryptoKey: keyPair.privateKey,
           signatureKey: { type: "jwt", jwt: agentToken },
@@ -4133,6 +4155,17 @@ ${renderJSON(body)}`;
             copy("authorize.authorization_granted.label"),
             "success",
             (body?.auth_token ? formatAuthToken(body.auth_token) : "") + anotherRequestButton()
+          );
+          return;
+        }
+        if (res.status === 404) {
+          clearPendingAuthorize();
+          resolveStep(pollStep, "error", fmt(copy("authorize.ps_pending_longpoll.label_resolved_template"), { path: pollPath, status: 404 }));
+          resolveStep(interactionStep, "error", "Interaction Expired");
+          addLogStep(
+            "Interaction expired",
+            "error",
+            formatResponse(404, null, body) + anotherRequestButton()
           );
           return;
         }

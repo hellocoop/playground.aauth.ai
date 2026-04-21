@@ -7,6 +7,8 @@ import { fetch as sigFetch } from '@hellocoop/httpsig'
 import qrcode from 'qrcode-generator'
 import LOG_TEXT from '../public/log-text.json'
 
+const POLL_WAIT_SECONDS = 10
+
 // ── Log text lookup ──
 //
 // All user-facing labels + descriptions live in public/log-text.json
@@ -429,7 +431,7 @@ async function runBootstrap(psUrl, hints) {
   const pollStep = addLogStep(fmt(copy('bootstrap.ps_pending_longpoll.label_template'), { path: pollPath }), 'pending',
     desc('bootstrap.ps_pending_longpoll') +
     formatRequest('GET', absolutePollUrl, {
-      'Prefer': 'wait=30',
+      'Prefer': `wait=${POLL_WAIT_SECONDS}`,
       'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
       'Signature': 'sig=:...:',
       'Signature-Key': `sig=hwk;kty="${publicJwk.kty}";crv="${publicJwk.crv}";x="${publicJwk.x}"`,
@@ -461,7 +463,7 @@ async function runBootstrap(psUrl, hints) {
 // Poll the PS pending URL for the bootstrap_token. Polls are signed with
 // the ephemeral key + sig=hwk (same key bound into the PS's record).
 //
-// We send `Prefer: wait=30` (RFC 7240 + IETF draft long-polling): the PS
+// We send `Prefer: wait=POLL_WAIT_SECONDS` (RFC 7240 + IETF draft long-polling): the PS
 // holds the request for up to 30s and returns as soon as state changes.
 // On 202 we loop immediately; on network error we back off briefly so a
 // dead connection doesn't spin.
@@ -491,9 +493,9 @@ async function _pollForBootstrapTokenImpl(absolutePollUrl, keyPair, publicJwk, i
     // surfaced (would flood the log at ~30s cadence) — we just show the
     // request shape once and resolve when the poll terminates.
     pollStep = addLogStep(fmt(copy('bootstrap.ps_pending_longpoll.label_template'), { path: pollPath }), 'pending',
-      `<p>Agent waits for consent; <code>Prefer: wait=30</code> holds the connection open so the PS can push state immediately instead of tight polling.</p>` +
+      `<p>Agent waits for consent; <code>Prefer: wait=${POLL_WAIT_SECONDS}</code> holds the connection open so the PS can push state immediately instead of tight polling.</p>` +
       formatRequest('GET', absolutePollUrl, {
-        'Prefer': 'wait=30',
+        'Prefer': `wait=${POLL_WAIT_SECONDS}`,
         'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
         'Signature': 'sig=:...:',
         'Signature-Key': `sig=hwk;kty="${publicJwk.kty}";crv="${publicJwk.crv}";x="${publicJwk.x}"`,
@@ -504,7 +506,7 @@ async function _pollForBootstrapTokenImpl(absolutePollUrl, keyPair, publicJwk, i
     try {
       const res = await sigFetch(absolutePollUrl, {
         method: 'GET',
-        headers: { Prefer: 'wait=30' },
+        headers: { Prefer: `wait=${POLL_WAIT_SECONDS}` },
         signingKey: publicJwk,
         signingCryptoKey: keyPair.privateKey,
         signatureKey: { type: 'hwk' },
@@ -538,6 +540,14 @@ async function _pollForBootstrapTokenImpl(absolutePollUrl, keyPair, publicJwk, i
           formatResponse(403, null, await res.json().catch(() => null)) + anotherRequestButton())
         return null
       }
+      if (res.status === 404) {
+        clearPendingBootstrap()
+        resolveStep(pollStep, 'error', fmt(copy('bootstrap.ps_pending_longpoll.label_resolved_template'), { path: pollPath, status: 404 }))
+        resolveStep(interactionStep, 'error', 'Interaction Expired')
+        addLogStep('Interaction expired', 'error',
+          formatResponse(404, null, await res.json().catch(() => null)) + anotherRequestButton())
+        return null
+      }
       if (res.status === 408) {
         clearPendingBootstrap()
         resolveStep(pollStep, 'error', fmt(copy('bootstrap.ps_pending_longpoll.label_resolved_template'), { path: pollPath, status: 408 }))
@@ -546,7 +556,7 @@ async function _pollForBootstrapTokenImpl(absolutePollUrl, keyPair, publicJwk, i
           desc('bootstrap.ps_interaction_timed_out') + formatResponse(408, null, null) + anotherRequestButton())
         return null
       }
-      // 202 → loop immediately (server already held up to 30s)
+      // 202 → loop immediately
     } catch (err) {
       console.log('Bootstrap poll error:', err.message)
       await new Promise((r) => setTimeout(r, 5000))
@@ -1080,7 +1090,7 @@ async function runAuthorizationAgainstPS(psUrl, scope, hints) {
         pollStep = addLogStep(fmt(copy('authorize.ps_pending_longpoll.label_template'), { path: new URL(absolutePollUrl).pathname }), 'pending',
           desc('authorize.ps_pending_longpoll') +
           formatRequest('GET', absolutePollUrl, {
-            'Prefer': 'wait=30',
+            'Prefer': `wait=${POLL_WAIT_SECONDS}`,
             'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
             'Signature': 'sig=:...:',
             'Signature-Key': `sig=jwt;jwt="${agentTokenForLog?.substring(0, 20)}..."`,
@@ -1350,7 +1360,7 @@ if (document.readyState === 'complete') {
 
 // ── Auth-token polling (for PS /token interaction flow) ──
 //
-// Same long-poll pattern as pollForBootstrapToken: send `Prefer: wait=30`
+// Same long-poll pattern as pollForBootstrapToken: send `Prefer: wait=POLL_WAIT_SECONDS`
 // and loop immediately on 202. Agent token + ephemeral key are snapshotted
 // once at start; the polling is signed with sig=jwt using them.
 
@@ -1390,7 +1400,7 @@ async function _startAuthTokenPollingImpl(pollUrl, baseUrl, interactionStep, pol
     pollStep = addLogStep(fmt(copy('authorize.ps_pending_longpoll.label_template'), { path: pollPath }), 'pending',
       desc('authorize.ps_pending_longpoll') +
       formatRequest('GET', absolutePollUrl, {
-        'Prefer': 'wait=30',
+        'Prefer': `wait=${POLL_WAIT_SECONDS}`,
         'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
         'Signature': 'sig=:...:',
         'Signature-Key': `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`,
@@ -1404,7 +1414,7 @@ async function _startAuthTokenPollingImpl(pollUrl, baseUrl, interactionStep, pol
     try {
       const res = await sigFetch(absolutePollUrl, {
         method: 'GET',
-        headers: { Prefer: 'wait=30' },
+        headers: { Prefer: `wait=${POLL_WAIT_SECONDS}` },
         signingKey: signingJwk,
         signingCryptoKey: keyPair.privateKey,
         signatureKey: { type: 'jwt', jwt: agentToken },
@@ -1430,6 +1440,14 @@ async function _startAuthTokenPollingImpl(pollUrl, baseUrl, interactionStep, pol
           (body?.auth_token ? formatAuthToken(body.auth_token) : '') +
           anotherRequestButton())
         // if (body?.auth_token) await callDemoResourceApi(body.auth_token)
+        return
+      }
+      if (res.status === 404) {
+        clearPendingAuthorize()
+        resolveStep(pollStep, 'error', fmt(copy('authorize.ps_pending_longpoll.label_resolved_template'), { path: pollPath, status: 404 }))
+        resolveStep(interactionStep, 'error', 'Interaction Expired')
+        addLogStep('Interaction expired', 'error',
+          formatResponse(404, null, body) + anotherRequestButton())
         return
       }
       if (res.status === 403 || res.status === 408) {
