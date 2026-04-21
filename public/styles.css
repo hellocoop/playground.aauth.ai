@@ -448,10 +448,41 @@ a { color: var(--accent); }
 }
 
 /* When the inline protocol log first appears beneath a Bootstrap /
-   Continue button, it was butting right up against the button. Space
-   it off so the log reads as a separate block of output. */
-.protocol-log {
+   Continue button, the outer <details> wrapper was butting right up
+   against the button. Space it off so the log reads as a separate
+   block of output. Margin rides on the wrapper (not the inner log
+   container) so the collapsed summary still has breathing room. */
+.protocol-log-wrap {
   margin-top: 1rem;
+}
+.protocol-log-summary {
+  cursor: pointer;
+  padding: 0.4rem 0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  list-style: none;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.protocol-log-summary::-webkit-details-marker { display: none; }
+/* Rotating chevron — matches the one on .section-group headings. */
+.protocol-log-summary::after {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  transition: transform 0.15s ease;
+  transform: rotate(-90deg);
+  opacity: 0.7;
+}
+.protocol-log-wrap[open] > .protocol-log-summary::after {
+  transform: rotate(0deg);
 }
 
 /* Continue + Reset button row under the Authorization Request form. */

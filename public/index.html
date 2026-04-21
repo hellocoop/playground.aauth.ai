@@ -104,8 +104,14 @@
         inline here so the user's focus never leaves the fieldset they
         just acted on. Separate log instances live inside Authorization
         Request and (when agent-token refresh fires) Agent Identity.
+        The wrapping <details> makes the whole log collapsible — it's
+        auto-closed on successful bootstrap so the completed ceremony
+        stays available for review without occupying screen space.
       -->
-      <div class="protocol-log hidden" id="bootstrap-log"></div>
+      <details class="protocol-log-wrap hidden" id="bootstrap-log-wrap" open>
+        <summary class="protocol-log-summary">Protocol log</summary>
+        <div class="protocol-log" id="bootstrap-log"></div>
+      </details>
     </fieldset>
   </div>
 
@@ -174,8 +180,13 @@
 
       <!-- Authorization's network calls log inline here — separate
            instance from #bootstrap-log so each fieldset tells a
-           self-contained story of one protocol round trip. -->
-      <div class="protocol-log hidden" id="authz-log"></div>
+           self-contained story of one protocol round trip. Wrapped
+           in a collapsible <details> with the same auto-close-on-
+           success behavior as the bootstrap log. -->
+      <details class="protocol-log-wrap hidden" id="authz-log-wrap" open>
+        <summary class="protocol-log-summary">Protocol log</summary>
+        <div class="protocol-log" id="authz-log"></div>
+      </details>
     </fieldset>
   </div>
 

@@ -303,16 +303,17 @@ window.aauthWebAuthn = {
 
 // ── UI updates ──
 
-// Post-bootstrap state: hide the Bootstrap section, show Agent Identity
-// (with agent info + tokens) and the Authorization Request section.
+// Post-bootstrap state: leave the Bootstrap section visible with its
+// protocol log collapsed (see collapseLog() at end of
+// completeAgentServerBootstrap), and reveal Agent Identity + Authorization
+// Request below it. Keeping the bootstrap section present means the
+// completed ceremony stays reviewable — expand the <details> to see
+// the full request/response trail again.
 //
-// Scrolls to the Agent Identity card on first reveal — on a post-OAuth
-// redirect-back, the browser's scroll position was wherever the Bootstrap
-// section happened to be, which is almost always well above where the
-// Continue button now lives. Without this, the user lands on a page that
-// looks unchanged and has to scroll manually to find the next step.
+// Scrolls to the Agent Identity card on first reveal so a post-OAuth
+// redirect-back lands the viewport on the next actionable block instead
+// of wherever the Bootstrap section happened to be.
 function setAuthenticated(label) {
-  document.getElementById('bootstrap-section')?.classList.add('hidden')
   const authSection = document.getElementById('auth-section')
   const authzSection = document.getElementById('authz-section')
   authSection?.classList.remove('hidden')

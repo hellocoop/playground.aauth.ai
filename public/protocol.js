@@ -2873,16 +2873,21 @@
   function currentLog() {
     return __activeLogContainer || document.getElementById("protocol-log");
   }
+  function logWrapper(log) {
+    return log?.closest(".protocol-log-wrap") || log;
+  }
   function clearLog() {
     const log = currentLog();
-    if (log) {
-      log.innerHTML = "";
-      log.classList.add("hidden");
-    }
+    if (!log) return;
+    log.innerHTML = "";
+    logWrapper(log).classList.add("hidden");
   }
   function showLog() {
     const log = currentLog();
-    if (log) log.classList.remove("hidden");
+    if (!log) return;
+    const wrap = logWrapper(log);
+    wrap.classList.remove("hidden");
+    if (wrap.tagName === "DETAILS") wrap.open = true;
   }
   function statusIndicatorHtml(status) {
     if (status === "pending") {
@@ -2902,7 +2907,7 @@
   function addLogSection(title) {
     const log = currentLog();
     if (!log) return;
-    log.classList.remove("hidden");
+    showLog();
     const h = document.createElement("div");
     h.className = "log-section-heading";
     h.textContent = title;
@@ -2911,7 +2916,7 @@
   function addLogStep(label, status, content) {
     const log = currentLog();
     if (!log) return null;
-    log.classList.remove("hidden");
+    showLog();
     const expandable = isExpandable(content);
     const step = expandable ? document.createElement("details") : document.createElement("div");
     step.className = `log-step section-group ${status}${expandable ? "" : " log-step-static"}`;
