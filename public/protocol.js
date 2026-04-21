@@ -3678,7 +3678,7 @@ ${renderJSON(body)}`;
         const interactionStep = addLogStep(
           "Interaction Required",
           "pending",
-          formatResponse(202, responseHeaders, psBody) + renderInteraction(interaction, pollUrl)
+          formatResponse(202, responseHeaders, psBody) + renderInteraction(interaction, pollUrl, "authorize")
         );
         if (pollUrl) {
           savePendingAuthorize({
@@ -3718,13 +3718,14 @@ ${renderJSON(body)}`;
     }
     return result;
   }
-  function renderInteraction(interaction, pollUrl) {
+  function renderInteraction(interaction, pollUrl, kind = "bootstrap") {
     if (!interaction.url || !interaction.code) {
       const missing = [];
       if (!interaction.url) missing.push("interaction_endpoint (PS metadata) or url (header)");
       if (!interaction.code) missing.push("code");
       return `<p style="color: var(--muted);">Interaction required but missing: ${escapeHtml(missing.join(", "))}.</p>`;
     }
+    const heading = kind === "authorize" ? "Continue at your Person Server to approve this request" : "Continue at your Person Server to approve this agent";
     const callbackUrl = `${window.location.origin}/`;
     const sameDeviceUrl = `${interaction.url}?code=${encodeURIComponent(interaction.code)}&callback=${encodeURIComponent(callbackUrl)}`;
     const qrUrl = `${interaction.url}?code=${encodeURIComponent(interaction.code)}`;
@@ -3732,8 +3733,7 @@ ${renderJSON(body)}`;
     const urlId = nextCopyId();
     const html = `
     <div class="interaction-box">
-      <p>The Person Server requires user interaction.</p>
-      <div class="interaction-code">${escapeHtml(interaction.code)}</div>
+      <p class="interaction-heading">${escapeHtml(heading)}</p>
       <div class="interaction-actions">
         <a class="interaction-link" href="${escapeHtml(sameDeviceUrl)}">Open Person Server</a>
         <div class="interaction-url-row">
@@ -3741,9 +3741,10 @@ ${renderJSON(body)}`;
           <button class="copy-btn" type="button" data-copy="${escapeHtml(sameDeviceUrl)}" aria-label="Copy"></button>
         </div>
       </div>
-      <div class="interaction-or"><span>OR</span></div>
-      <p class="qr-caption">Scan with another device to continue</p>
+      <div class="interaction-or"><span>OR on another device</span></div>
       <div class="qr-code" id="${qrId}"></div>
+      <p class="qr-caption">Scan, or enter this code at your Person Server:</p>
+      <div class="interaction-code">${escapeHtml(interaction.code)}</div>
       <div class="interaction-approved" aria-hidden="true">
         <svg class="interaction-check" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
       </div>
