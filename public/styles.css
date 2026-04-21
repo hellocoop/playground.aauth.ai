@@ -81,7 +81,7 @@ body {
 .brand {
   font-weight: 400;
   font-size: 1.125rem;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: 'IBM Plex Mono', 'SF Mono', 'Fira Code', monospace;
 }
 .brand-logo { display: block; }
 
@@ -192,7 +192,7 @@ input[type="checkbox"]:disabled, input[type="radio"]:disabled {
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0.6rem 0.75rem;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: 'IBM Plex Mono', 'SF Mono', 'Fira Code', monospace;
   font-size: 0.75rem;
   word-break: break-all;
   white-space: pre-wrap;
@@ -246,7 +246,7 @@ label { font-size: 0.85rem; color: var(--muted); display: block; margin-bottom: 
 }
 a { color: var(--accent); }
 .mono {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: 'IBM Plex Mono', 'SF Mono', 'Fira Code', monospace;
   font-size: 0.85rem;
   color: var(--muted);
 }
@@ -290,6 +290,12 @@ a { color: var(--accent); }
   transition: transform 0.15s;
 }
 .section-group[open] > .section-heading .section-chevron { transform: rotate(180deg); }
+.section-group > .section-heading.section-heading-static {
+  cursor: default;
+}
+.ps-url {
+  color: var(--text);
+}
 
 /* Checkbox group */
 .checkbox-group {
@@ -376,7 +382,7 @@ a { color: var(--accent); }
   margin-bottom: 1rem;
 }
 .readonly-field-text {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: 'IBM Plex Mono', 'SF Mono', 'Fira Code', monospace;
   font-size: 0.9rem;
   word-break: break-all;
   flex: 1;
@@ -439,6 +445,26 @@ a { color: var(--accent); }
 }
 .log-step-static > .section-heading { cursor: default; }
 
+/* Body rendered under each step's heading. A leading <p> is the one-line
+   description for the step — rendered smaller, muted, tight to the heading.
+   Other children (token panels, response blocks) keep their own spacing. */
+.log-step-body { margin-top: 0.5rem; }
+.log-step-body > p:first-child {
+  margin: -8px 0 0.75rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+/* "Request" / "Response" caption above each monospace box in a log step. */
+.token-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0 0 0.25rem;
+}
+.token-label + .token-wrap { margin-top: 0; }
+.token-wrap + .token-label { margin-top: 0.75rem; }
+
 /* Protocol log section dividers (Bootstrap / Refresh / Authorize).
    Visually separates the ceremonies so the reader can scan them. */
 .log-section-heading {
@@ -488,7 +514,6 @@ details.log-section > summary.log-section-heading {
 details.log-section > summary::-webkit-details-marker { display: none; }
 details.log-section > summary.log-section-heading::after {
   content: '';
-  margin-left: auto;
   width: 0;
   height: 0;
   border-left: 4px solid transparent;
@@ -540,7 +565,7 @@ details.log-section + details.log-section {
 .section-box > legend {
   padding: 0 0.35rem;
   margin-left: -0.45rem;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: 'IBM Plex Mono', 'SF Mono', 'Fira Code', monospace;
   font-size: 0.75rem;
   text-transform: uppercase;
   color: var(--muted);
@@ -686,7 +711,7 @@ details.log-section + details.log-section {
   color: #40d97b;
 }
 .interaction-code {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: 'IBM Plex Mono', 'SF Mono', 'Fira Code', monospace;
   font-size: 1.5rem;
   letter-spacing: 0.15em;
   margin: 0.5rem 0;
@@ -718,7 +743,7 @@ details.log-section + details.log-section {
   max-width: 100%;
 }
 .interaction-url {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: 'IBM Plex Mono', 'SF Mono', 'Fira Code', monospace;
   font-size: 0.75rem;
   color: var(--muted);
   word-break: break-all;

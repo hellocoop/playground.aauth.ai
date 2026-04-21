@@ -548,35 +548,13 @@ async function hydrateResourceScopes() {
 
 const SETTINGS_KEY = 'aauth-playground-settings'
 const HINT_FIELDS = ['login-hint', 'domain-hint', 'provider-hint', 'tenant']
-const DEFAULT_PS = 'https://person.hello.coop'
+const DEFAULT_PS = 'https://person.hello-beta.net'
 
 function loadSettings() {
   let saved = {}
   try {
     saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}
   } catch { /* ignore corrupt JSON */ }
-
-  // Restore PS selection
-  const psList = document.getElementById('ps-list')
-  if (psList) {
-    const psValue = saved.ps || DEFAULT_PS
-    const psCustom = saved.ps_custom || ''
-    document.getElementById('ps-custom').value = psCustom
-    const radios = psList.querySelectorAll('input[name="ps"]')
-    let matched = false
-    for (const r of radios) {
-      if (r.value === psValue) { r.checked = true; matched = true; break }
-    }
-    if (!matched) {
-      // Saved PS isn't a preset → treat as custom
-      const customRadio = document.getElementById('ps-custom-radio')
-      if (customRadio) customRadio.checked = true
-      if (psValue && psValue !== 'custom') {
-        document.getElementById('ps-custom').value = psValue
-      }
-    }
-    updatePSCurrent()
-  }
 
   // Restore identity scope checkboxes.
   if (Array.isArray(saved.identity_scopes)) {
@@ -617,10 +595,6 @@ function loadSettings() {
 }
 
 function saveSettings() {
-  const psRadio = document.querySelector('#ps-list input[name="ps"]:checked')
-  const psCustom = document.getElementById('ps-custom')?.value?.trim() || ''
-  const ps = psRadio ? psRadio.value : DEFAULT_PS
-
   const identity_scopes = Array.from(
     document.querySelectorAll('#identity-scope-grid input[type="checkbox"]:checked')
   ).map(b => b.value)
@@ -638,8 +612,6 @@ function saveSettings() {
   }
 
   localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-    ps,
-    ps_custom: psCustom,
     identity_scopes,
     resource_scopes,
     hints,
@@ -647,39 +619,23 @@ function saveSettings() {
   }))
 }
 
-// Returns the URL the user has currently chosen for the PS.
-// Used by client/protocol.js (exposed via window for esbuild-bundled code).
+// Returns the URL of the PS. The picker is fixed to a single server, so this
+// just returns the constant. Kept as a function + window export because
+// client/protocol.js (bundled) calls window.getCurrentPS().
 function getCurrentPS() {
-  const psRadio = document.querySelector('#ps-list input[name="ps"]:checked')
-  if (!psRadio) return ''
-  if (psRadio.value === 'custom') {
-    return document.getElementById('ps-custom')?.value?.trim() || ''
-  }
-  return psRadio.value
+  return DEFAULT_PS
 }
 window.getCurrentPS = getCurrentPS
 
-// Show the active PS URL in the <summary> when collapsed.
-function updatePSCurrent() {
-  const el = document.getElementById('ps-current')
-  if (el) el.textContent = getCurrentPS() || '(none selected)'
-}
-
 function wireSettingsAutosave() {
-  // PS picker + hints live in the Bootstrap section; scope grids live in
-  // the Authorization section. Watch both for any user edit.
+  // Hints live in Bootstrap; scope grids live in Authorization. Watch both
+  // for any user edit.
   const roots = ['bootstrap-section', 'authz-section']
     .map((id) => document.getElementById(id))
     .filter(Boolean)
   for (const root of roots) {
-    root.addEventListener('change', () => { saveSettings(); updatePSCurrent() })
-    root.addEventListener('input', () => { saveSettings(); updatePSCurrent() })
-  }
-  // Typing in the custom URL field implicitly selects the custom radio.
-  const customInput = document.getElementById('ps-custom')
-  const customRadio = document.getElementById('ps-custom-radio')
-  if (customInput && customRadio) {
-    customInput.addEventListener('focus', () => { customRadio.checked = true; saveSettings(); updatePSCurrent() })
+    root.addEventListener('change', saveSettings)
+    root.addEventListener('input', saveSettings)
   }
 }
 
