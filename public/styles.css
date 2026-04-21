@@ -447,6 +447,13 @@ a { color: var(--accent); }
   border-top: 0;
 }
 
+/* When the inline protocol log first appears beneath a Bootstrap /
+   Continue button, it was butting right up against the button. Space
+   it off so the log reads as a separate block of output. */
+.protocol-log {
+  margin-top: 1rem;
+}
+
 /* Continue + Reset button row under the Authorization Request form. */
 .authz-actions {
   display: flex;

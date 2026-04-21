@@ -3119,27 +3119,6 @@ ${renderJSON(body)}`;
       return false;
     }
     const absolutePollUrl = new URL(pollUrl, bootstrapEndpoint).href;
-    const interactionStep = addLogStep(
-      "User Consent at Person Server",
-      "pending",
-      formatResponse(psBootRes.status, responseHeaders, psBootBody) + renderInteraction(interactionParams, absolutePollUrl)
-    );
-    savePendingBootstrap({
-      pollUrl: absolutePollUrl,
-      bootstrapEndpoint,
-      psUrl
-    });
-    const pending = await pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep);
-    trace("pollForBootstrapToken returned", pending ? { hasToken: !!pending.bootstrap_token } : null);
-    if (!pending) return false;
-    addLogStep(
-      "Bootstrap Token Received",
-      "success",
-      formatToken("Bootstrap Token (aa-bootstrap+jwt)", pending.bootstrap_token, decodeJWTPayloadBrowser(pending.bootstrap_token))
-    );
-    return await completeAgentServerBootstrap(pending.bootstrap_token, publicJwk, keyPair, { psUrl });
-  }
-  async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep) {
     const pollPath = new URL(absolutePollUrl).pathname;
     const pollStep = addLogStep(
       `GET ${pollPath} (long-poll)`,
@@ -3151,6 +3130,40 @@ ${renderJSON(body)}`;
         "Signature-Key": `sig=hwk;kty="${publicJwk.kty}";crv="${publicJwk.crv}";x="${publicJwk.x}"`
       }, null)
     );
+    const interactionStep = addLogStep(
+      "User Consent at Person Server",
+      "pending",
+      formatResponse(psBootRes.status, responseHeaders, psBootBody) + renderInteraction(interactionParams, absolutePollUrl)
+    );
+    savePendingBootstrap({
+      pollUrl: absolutePollUrl,
+      bootstrapEndpoint,
+      psUrl
+    });
+    const pending = await pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep, pollStep);
+    trace("pollForBootstrapToken returned", pending ? { hasToken: !!pending.bootstrap_token } : null);
+    if (!pending) return false;
+    addLogStep(
+      "Bootstrap Token Received",
+      "success",
+      formatToken("Bootstrap Token (aa-bootstrap+jwt)", pending.bootstrap_token, decodeJWTPayloadBrowser(pending.bootstrap_token))
+    );
+    return await completeAgentServerBootstrap(pending.bootstrap_token, publicJwk, keyPair, { psUrl });
+  }
+  async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep, pollStep) {
+    const pollPath = new URL(absolutePollUrl).pathname;
+    if (!pollStep) {
+      pollStep = addLogStep(
+        `GET ${pollPath} (long-poll)`,
+        "pending",
+        `<p>Long-polling the PS pending URL. <code>Prefer: wait=30</code> asks the PS to hold the request for up to 30s and return as soon as state changes. On 202 the client loops immediately.</p>` + formatRequest("GET", absolutePollUrl, {
+          "Prefer": "wait=30",
+          "Signature-Input": 'sig=("@method" "@authority" "@path" "signature-key");created=...',
+          "Signature": "sig=:...:",
+          "Signature-Key": `sig=hwk;kty="${publicJwk.kty}";crv="${publicJwk.crv}";x="${publicJwk.x}"`
+        }, null)
+      );
+    }
     while (true) {
       try {
         const res = await (0, import_httpsig.fetch)(absolutePollUrl, {

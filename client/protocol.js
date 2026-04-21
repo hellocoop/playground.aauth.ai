@@ -355,7 +355,24 @@ async function runBootstrap(psUrl, hints) {
   }
 
   // Step 3: show interaction + poll until bootstrap_token arrives.
+  //
+  // Render order matters — the log reads top-down as a protocol trace:
+  //   POST /aauth/bootstrap → 202        (already above)
+  //   GET  /aauth/pending/:code          (the request we're about to make)
+  //   Person Server interaction UI       (what the user does next)
+  // The long-poll is conceptually the response to the 202 above. Surfacing
+  // it before the QR-code block matches how the bytes actually flow.
   const absolutePollUrl = new URL(pollUrl, bootstrapEndpoint).href
+  const pollPath = new URL(absolutePollUrl).pathname
+  const pollStep = addLogStep(`GET ${pollPath} (long-poll)`, 'pending',
+    `<p>Long-polling the PS pending URL. <code>Prefer: wait=30</code> asks the PS to hold the request for up to 30s and return as soon as state changes. On 202 the client loops immediately.</p>` +
+    formatRequest('GET', absolutePollUrl, {
+      'Prefer': 'wait=30',
+      'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
+      'Signature': 'sig=:...:',
+      'Signature-Key': `sig=hwk;kty="${publicJwk.kty}";crv="${publicJwk.crv}";x="${publicJwk.x}"`,
+    }, null)
+  )
   const interactionStep = addLogStep('User Consent at Person Server', 'pending',
     formatResponse(psBootRes.status, responseHeaders, psBootBody) +
     renderInteraction(interactionParams, absolutePollUrl)
@@ -366,7 +383,7 @@ async function runBootstrap(psUrl, hints) {
     psUrl,
   })
 
-  const pending = await pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep)
+  const pending = await pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep, pollStep)
   trace('pollForBootstrapToken returned', pending ? { hasToken: !!pending.bootstrap_token } : null)
   if (!pending) return false
 
@@ -385,20 +402,26 @@ async function runBootstrap(psUrl, hints) {
 // holds the request for up to 30s and returns as soon as state changes.
 // On 202 we loop immediately; on network error we back off briefly so a
 // dead connection doesn't spin.
-async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep) {
+// pollStep is created by the caller so the log rows can be ordered as
+// "202 response → GET /pending (long-poll) → User Consent at PS". When
+// called from a resume path that doesn't pre-create the step, fall back
+// to creating it inline so the poll still renders as a log entry.
+async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep, pollStep) {
   const pollPath = new URL(absolutePollUrl).pathname
-  // Single log entry for the whole long-poll. Each HTTP attempt isn't
-  // surfaced (would flood the log at ~30s cadence) — we just show the
-  // request shape once and resolve when the poll terminates.
-  const pollStep = addLogStep(`GET ${pollPath} (long-poll)`, 'pending',
-    `<p>Long-polling the PS pending URL. <code>Prefer: wait=30</code> asks the PS to hold the request for up to 30s and return as soon as state changes. On 202 the client loops immediately.</p>` +
-    formatRequest('GET', absolutePollUrl, {
-      'Prefer': 'wait=30',
-      'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
-      'Signature': 'sig=:...:',
-      'Signature-Key': `sig=hwk;kty="${publicJwk.kty}";crv="${publicJwk.crv}";x="${publicJwk.x}"`,
-    }, null)
-  )
+  if (!pollStep) {
+    // Single log entry for the whole long-poll. Each HTTP attempt isn't
+    // surfaced (would flood the log at ~30s cadence) — we just show the
+    // request shape once and resolve when the poll terminates.
+    pollStep = addLogStep(`GET ${pollPath} (long-poll)`, 'pending',
+      `<p>Long-polling the PS pending URL. <code>Prefer: wait=30</code> asks the PS to hold the request for up to 30s and return as soon as state changes. On 202 the client loops immediately.</p>` +
+      formatRequest('GET', absolutePollUrl, {
+        'Prefer': 'wait=30',
+        'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
+        'Signature': 'sig=:...:',
+        'Signature-Key': `sig=hwk;kty="${publicJwk.kty}";crv="${publicJwk.crv}";x="${publicJwk.x}"`,
+      }, null)
+    )
+  }
   while (true) {
     try {
       const res = await sigFetch(absolutePollUrl, {
