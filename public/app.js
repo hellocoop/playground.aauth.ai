@@ -491,7 +491,6 @@ const IDENTITY_SCOPES = [
   { name: 'nickname',    description: 'Access your nickname' },
   { name: 'given_name',  description: 'Access your given name' },
   { name: 'family_name', description: 'Access your family name' },
-  { name: 'phone',       description: 'Access your phone number' },
   { name: 'discord',     description: 'Access your linked Discord account' },
   { name: 'twitter',     description: 'Access your linked Twitter account' },
   { name: 'github',      description: 'Access your linked GitHub account' },
