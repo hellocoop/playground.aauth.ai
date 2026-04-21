@@ -469,7 +469,22 @@ async function runBootstrap(psUrl, hints) {
 // "202 response → GET /pending (long-poll) → User Consent at PS". When
 // called from a resume path that doesn't pre-create the step, fall back
 // to creating it inline so the poll still renders as a log entry.
+// Module-level guard mirrors _authzPollRunning below: startBootstrap +
+// resumePendingInteraction can each invoke us; without this flag their
+// loops interleave and one loop's signed `created` trails the other by
+// 30s+, which the PS sees as stale and rejects with skew-at-tolerance
+// 401s.
+let _bootstrapPollRunning = false
 async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep, pollStep) {
+  if (_bootstrapPollRunning) return null
+  _bootstrapPollRunning = true
+  try {
+    return await _pollForBootstrapTokenImpl(absolutePollUrl, keyPair, publicJwk, interactionStep, pollStep)
+  } finally {
+    _bootstrapPollRunning = false
+  }
+}
+async function _pollForBootstrapTokenImpl(absolutePollUrl, keyPair, publicJwk, interactionStep, pollStep) {
   const pollPath = new URL(absolutePollUrl).pathname
   if (!pollStep) {
     // Single log entry for the whole long-poll. Each HTTP attempt isn't
