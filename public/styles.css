@@ -58,26 +58,25 @@ body {
 @media (prefers-color-scheme: dark) {
   .site-header { color: #d4d4d4; }
 }
-.header-side { display: inline-flex; width: 33.333%; align-items: center; }
-.header-right { justify-content: flex-end; }
-.header-center { display: inline-flex; flex: 0 0 auto; justify-content: center; }
+.header-side { display: inline-flex; width: 50%; align-items: center; gap: 0.6rem; }
+.header-right { justify-content: flex-end; gap: 1.1rem; }
 .site-header a {
   color: inherit;
   text-decoration: none;
   font-weight: 400;
-  font-size: 1.125rem;
+  /* Secondary to the logo but still readable at arm's length. */
+  font-size: 1rem;
   opacity: 0.7;
   transition: opacity 0.15s ease;
   display: inline-flex;
   align-items: center;
+  gap: 4px;
 }
 .site-header a:hover { opacity: 1; }
-.site-header .ext-link::after {
-  content: '\2197';
-  color: inherit;
-  margin-left: 4px;
-  font-size: 0.92em;
-  display: inline-block;
+.site-header .ext-link-arrow {
+  /* Inline SVG replaces the old ::after '↗' glyph so the stroke weight
+     matches the text and scales cleanly in both themes. */
+  flex: 0 0 auto;
 }
 .brand {
   font-weight: 400;
@@ -85,6 +84,13 @@ body {
   font-family: 'SF Mono', 'Fira Code', monospace;
 }
 .brand-logo { display: block; }
+
+/* Intro paragraph inside a fieldset (e.g. Bootstrap Agent's one-liner
+   explanation) — nudge it off the legend and away from the controls
+   below so it reads as standalone copy, not a caption. */
+.section-box > p {
+  margin-bottom: 0.5rem;
+}
 h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
 h2 { font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--muted); font-weight: 400; }
 .card {

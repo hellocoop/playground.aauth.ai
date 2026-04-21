@@ -305,11 +305,23 @@ window.aauthWebAuthn = {
 
 // Post-bootstrap state: hide the Bootstrap section, show Agent Identity
 // (with agent info + tokens) and the Authorization Request section.
+//
+// Scrolls to the Agent Identity card on first reveal — on a post-OAuth
+// redirect-back, the browser's scroll position was wherever the Bootstrap
+// section happened to be, which is almost always well above where the
+// Continue button now lives. Without this, the user lands on a page that
+// looks unchanged and has to scroll manually to find the next step.
 function setAuthenticated(label) {
   document.getElementById('bootstrap-section')?.classList.add('hidden')
-  document.getElementById('auth-section')?.classList.remove('hidden')
-  document.getElementById('authz-section')?.classList.remove('hidden')
+  const authSection = document.getElementById('auth-section')
+  const authzSection = document.getElementById('authz-section')
+  authSection?.classList.remove('hidden')
+  authzSection?.classList.remove('hidden')
   document.getElementById('auth-user').textContent = label
+  // Defer one frame so layout settles (hidden → visible) before scroll.
+  requestAnimationFrame(() => {
+    authSection?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
 }
 
 // Pre-bootstrap state: show only the Bootstrap section; hide Agent Identity

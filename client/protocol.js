@@ -54,14 +54,39 @@ window.aauthSigFetch = async function aauthSigFetch(url, { method = 'GET', heade
 }
 
 // ── Log rendering ──
+//
+// Each fieldset (Bootstrap Agent, Authorization Request) renders its
+// own inline protocol log so the request/response trail stays next to
+// the button that produced it. Each flow calls `setActiveLog('<id>')`
+// at entry; subsequent addLogSection/addLogStep/resolveStep/clearLog
+// calls target that container. The legacy '#protocol-log' id is still
+// honored as a fallback for any unmigrated call site.
+
+let __activeLogContainer = null
+
+function setActiveLog(id) {
+  const el = document.getElementById(id)
+  if (el) __activeLogContainer = el
+}
+
+function currentLog() {
+  // Prefer the explicitly-set container. Fall back to the legacy
+  // shared log if nothing's been set (shouldn't happen post-refactor,
+  // but keeps us safe against any call site we missed).
+  return __activeLogContainer || document.getElementById('protocol-log')
+}
 
 function clearLog() {
-  document.getElementById('protocol-log').innerHTML = ''
-  document.getElementById('log-section').classList.add('hidden')
+  const log = currentLog()
+  if (log) {
+    log.innerHTML = ''
+    log.classList.add('hidden')
+  }
 }
 
 function showLog() {
-  document.getElementById('log-section').classList.remove('hidden')
+  const log = currentLog()
+  if (log) log.classList.remove('hidden')
 }
 
 function statusIndicatorHtml(status) {
@@ -87,7 +112,9 @@ function isExpandable(content) {
 // "Bootstrap", "Refresh", and "Authorize" so the reader can tell which
 // ceremony a given step belongs to.
 function addLogSection(title) {
-  const log = document.getElementById('protocol-log')
+  const log = currentLog()
+  if (!log) return
+  log.classList.remove('hidden')
   const h = document.createElement('div')
   h.className = 'log-section-heading'
   h.textContent = title
@@ -95,7 +122,9 @@ function addLogSection(title) {
 }
 
 function addLogStep(label, status, content) {
-  const log = document.getElementById('protocol-log')
+  const log = currentLog()
+  if (!log) return null
+  log.classList.remove('hidden')
   const expandable = isExpandable(content)
   const step = expandable ? document.createElement('details') : document.createElement('div')
   step.className = `log-step section-group ${status}${expandable ? '' : ' log-step-static'}`
@@ -746,6 +775,11 @@ async function startBootstrap() {
     return
   }
 
+  // Route all log calls during bootstrap to the log container inside
+  // the Bootstrap Agent fieldset. Kept set until startAuthorize takes
+  // over; refresh (which fires from inside startAuthorize) keeps its
+  // steps here too since it's part of the agent-identity lifecycle.
+  setActiveLog('bootstrap-log')
   clearLog()
   showLog()
 
@@ -775,6 +809,11 @@ async function startAuthorize() {
     return
   }
 
+  // Authorization steps render in the Authorization Request fieldset's
+  // own log. Refresh (if agent_token is expired) still uses the bootstrap
+  // log since that's where the agent-identity card lives; we swap
+  // active back to authz-log after the refresh completes.
+  setActiveLog('authz-log')
   clearLog()
   showLog()
 
@@ -1057,6 +1096,10 @@ async function resumePendingInteraction() {
   if (_resumeInteractionPolling) return false
   _resumeInteractionPolling = true
 
+  // Resumed bootstrap — log into the same fieldset as the original
+  // startBootstrap run so the user sees the full round trip (go to PS,
+  // return, mint agent token) in one contiguous section log.
+  setActiveLog('bootstrap-log')
   showLog()
   addLogSection('Bootstrap (resumed)')
   const publicJwk = await crypto.subtle.exportKey('jwk', kp.publicKey)
@@ -1110,6 +1153,9 @@ async function resumePendingAuthorize() {
     return false
   }
 
+  // Resumed authorize — pick up the log inside the Authorization
+  // Request fieldset where the original Continue click logged.
+  setActiveLog('authz-log')
   showLog()
   addLogSection('Authorization (resumed)')
   const interactionStep = addLogStep('Resuming authorize interaction', 'pending',
@@ -1222,8 +1268,9 @@ document.getElementById('authz-btn').addEventListener('click', startAuthorize)
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('.js-scroll-authz')
   if (!btn) return
-  // Clear the protocol log but preserve binding / tokens — user wants a
-  // fresh authorization flow, not a full reset.
+  // Clear the authz section's log but preserve binding / tokens — user
+  // wants a fresh authorization flow, not a full reset.
+  setActiveLog('authz-log')
   clearLog()
   const section = document.getElementById('authz-section')
   if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' })

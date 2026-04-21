@@ -2865,12 +2865,24 @@
       components
     });
   };
+  var __activeLogContainer = null;
+  function setActiveLog(id) {
+    const el = document.getElementById(id);
+    if (el) __activeLogContainer = el;
+  }
+  function currentLog() {
+    return __activeLogContainer || document.getElementById("protocol-log");
+  }
   function clearLog() {
-    document.getElementById("protocol-log").innerHTML = "";
-    document.getElementById("log-section").classList.add("hidden");
+    const log = currentLog();
+    if (log) {
+      log.innerHTML = "";
+      log.classList.add("hidden");
+    }
   }
   function showLog() {
-    document.getElementById("log-section").classList.remove("hidden");
+    const log = currentLog();
+    if (log) log.classList.remove("hidden");
   }
   function statusIndicatorHtml(status) {
     if (status === "pending") {
@@ -2888,14 +2900,18 @@
     return !!content && !/<details[\s>]/i.test(content);
   }
   function addLogSection(title) {
-    const log = document.getElementById("protocol-log");
+    const log = currentLog();
+    if (!log) return;
+    log.classList.remove("hidden");
     const h = document.createElement("div");
     h.className = "log-section-heading";
     h.textContent = title;
     log.appendChild(h);
   }
   function addLogStep(label, status, content) {
-    const log = document.getElementById("protocol-log");
+    const log = currentLog();
+    if (!log) return null;
+    log.classList.remove("hidden");
     const expandable = isExpandable(content);
     const step = expandable ? document.createElement("details") : document.createElement("div");
     step.className = `log-step section-group ${status}${expandable ? "" : " log-step-static"}`;
@@ -3483,6 +3499,7 @@ ${renderJSON(body)}`;
       alert("Please choose or enter a Person Server URL");
       return;
     }
+    setActiveLog("bootstrap-log");
     clearLog();
     showLog();
     const hints = getHints();
@@ -3501,6 +3518,7 @@ ${renderJSON(body)}`;
       alert("Select at least one scope");
       return;
     }
+    setActiveLog("authz-log");
     clearLog();
     showLog();
     const hints = getHints();
@@ -3756,6 +3774,7 @@ ${renderJSON(body)}`;
     }
     if (_resumeInteractionPolling) return false;
     _resumeInteractionPolling = true;
+    setActiveLog("bootstrap-log");
     showLog();
     addLogSection("Bootstrap (resumed)");
     const publicJwk = await crypto.subtle.exportKey("jwk", kp.publicKey);
@@ -3806,6 +3825,7 @@ ${renderJSON(body)}`;
       clearPendingAuthorize();
       return false;
     }
+    setActiveLog("authz-log");
     showLog();
     addLogSection("Authorization (resumed)");
     const interactionStep = addLogStep(
@@ -3907,6 +3927,7 @@ ${renderJSON(body)}`;
   document.addEventListener("click", (e) => {
     const btn = e.target.closest(".js-scroll-authz");
     if (!btn) return;
+    setActiveLog("authz-log");
     clearLog();
     const section = document.getElementById("authz-section");
     if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
