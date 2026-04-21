@@ -378,6 +378,12 @@ function clearBinding() {
 // Exposed for protocol.js
 window.aauthBinding = { loadBinding, saveBinding, clearBinding, get: () => ({ bindingKey, bindingPs, bindingSub }) }
 
+// Exposed so startBootstrap (in the bundled protocol.js) can reset the
+// Agent Identity + Authorization Request UI when a user clicks
+// "Bootstrap agent" again after already having bootstrapped — otherwise
+// the old "Bound as …" line stays on screen while the new ceremony runs.
+window.aauthUI = { setAuthenticated, setUnauthenticated }
+
 // ── Agent token persistence ──
 
 function saveAgentToken(token) {

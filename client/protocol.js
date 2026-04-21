@@ -831,6 +831,12 @@ async function startBootstrap() {
   window.aauthBinding.clearBinding()
   localStorage.removeItem('aauth-agent-token')
 
+  // Reset the inline Agent Identity + Authorization Request UI back
+  // to its pre-bootstrap state. Without this, a second click of the
+  // Bootstrap agent button leaves the previous "Bound as …" line and
+  // the old agent-token panels on screen while the new ceremony runs.
+  window.aauthUI?.setUnauthenticated?.()
+
   await runBootstrap(psUrl, hints)
 }
 

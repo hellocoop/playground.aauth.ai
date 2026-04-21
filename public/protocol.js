@@ -3526,6 +3526,7 @@ ${renderJSON(body)}`;
     const hints = getHints();
     window.aauthBinding.clearBinding();
     localStorage.removeItem("aauth-agent-token");
+    window.aauthUI?.setUnauthenticated?.();
     await runBootstrap(psUrl, hints);
   }
   async function startAuthorize() {
