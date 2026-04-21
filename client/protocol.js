@@ -7,7 +7,7 @@ import { fetch as sigFetch } from '@hellocoop/httpsig'
 import qrcode from 'qrcode-generator'
 import LOG_TEXT from '../public/log-text.json'
 
-const POLL_WAIT_SECONDS = 10
+const POLL_WAIT_SECONDS = 45
 
 // ── Log text lookup ──
 //

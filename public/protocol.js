@@ -3030,7 +3030,7 @@
   };
 
   // client/protocol.js
-  var POLL_WAIT_SECONDS = 10;
+  var POLL_WAIT_SECONDS = 45;
   function copy(path) {
     return path.split(".").reduce((o, k) => o == null ? void 0 : o[k], log_text_default);
   }
