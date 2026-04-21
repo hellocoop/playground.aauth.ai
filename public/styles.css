@@ -461,6 +461,17 @@ a { color: var(--accent); }
   margin-top: 1rem;
 }
 
+/* The "Bound as …" block (#auth-info) hangs right below #bootstrap-log
+   inside the same fieldset. When a bootstrap ceremony just ran, the log
+   above it has content and the log div is visible — we want a 1rem gap
+   between the end-of-log and Bound-as. But on a page reload the log is
+   empty and `.hidden`, so Bound-as is visually the first item in the
+   section and the gap reads as stray top padding. Apply the gap only
+   when the preceding log is actually visible. */
+.protocol-log:not(.hidden) + #auth-info {
+  margin-top: 1rem;
+}
+
 /* Each addLogSection() call emits a <details class="log-section"> whose
    <summary> doubles as the section heading (BOOTSTRAP / REFRESH / …).
    The summary is styled to match the old static .log-section-heading
