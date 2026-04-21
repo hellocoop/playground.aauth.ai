@@ -496,7 +496,6 @@ const IDENTITY_SCOPES = [
   { name: 'twitter',     description: 'Access your linked Twitter account' },
   { name: 'github',      description: 'Access your linked GitHub account' },
   { name: 'gitlab',      description: 'Access your linked GitLab account' },
-  { name: 'ethereum',    description: 'Access your linked Ethereum wallet' },
 ]
 
 function renderScopeRow(scope, description, opts = {}) {
@@ -513,7 +512,7 @@ function renderScopeRow(scope, description, opts = {}) {
 //   Hellō scopes    — linked-account scopes specific to Hellō's extended profile
 // getSelectedIdentityScopes() still queries `#identity-scope-grid input:checked`,
 // so the wrapping id stays intact; columns are sub-containers within it.
-const EXTENDED_SCOPE_NAMES = new Set(['discord', 'github', 'gitlab', 'twitter', 'ethereum'])
+const EXTENDED_SCOPE_NAMES = new Set(['discord', 'github', 'gitlab', 'twitter'])
 
 function hydrateIdentityScopes() {
   const grid = document.getElementById('identity-scope-grid')
