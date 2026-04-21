@@ -219,24 +219,6 @@ function renderJSON(obj) {
   )
 }
 
-// Same as renderJSON but replaces the rendered string value of specified
-// top-level fields with the tri-color JWT encoding (header/payload/signature).
-// Used for request/response bodies that carry a JWT string (resource_token,
-// auth_token, bootstrap_token, …) so the token is visually scannable inline
-// instead of reading as a single opaque base64url blob.
-function renderJSONWithColoredJWTs(obj, jwtFields) {
-  let html = renderJSON(obj)
-  if (!jwtFields || !jwtFields.length) return html
-  for (const field of jwtFields) {
-    const value = obj?.[field]
-    if (typeof value !== 'string') continue
-    const target = `<span class="json-string">&quot;${escapeHtml(value)}&quot;</span>`
-    const replacement = `<span class="json-string">&quot;${renderEncodedJWT(value)}&quot;</span>`
-    html = html.replace(target, replacement)
-  }
-  return html
-}
-
 // ── WebAuthn helpers (used by bootstrap/refresh ceremonies) ──
 
 function base64urlToBuffer(str) {

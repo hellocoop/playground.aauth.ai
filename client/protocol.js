@@ -125,7 +125,7 @@ function addLogSection(title) {
   section.open = true
   const summary = document.createElement('summary')
   summary.className = 'log-section-heading'
-  summary.innerHTML = `<span class="log-section-title">${escapeHtml(title)}</span>${CHEVRON_SVG}`
+  summary.textContent = title
   section.appendChild(summary)
   log.appendChild(section)
 }
@@ -155,7 +155,6 @@ function addLogStep(label, status, content) {
   step.appendChild(heading)
 
   const body = document.createElement('div')
-  body.className = 'log-step-body'
   body.style.marginTop = '1rem'
   body.innerHTML = content
   step.appendChild(body)
@@ -165,17 +164,6 @@ function addLogStep(label, status, content) {
     step.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
   return step
-}
-
-// Append HTML into an existing step's body. Used when we want to fold
-// follow-up content (e.g. the response of an in-flight request) into the
-// same step that started with just the request, instead of emitting a
-// separate step row.
-function appendToStep(step, html) {
-  if (!step) return
-  const body = step.querySelector(':scope > .log-step-body')
-  if (!body) return
-  body.insertAdjacentHTML('beforeend', html)
 }
 
 // Update an existing step's status + label in place (instead of removing it).
@@ -201,7 +189,7 @@ function tokenWrap(innerHtml, extraClass = '') {
   </div>`
 }
 
-function formatRequest(method, url, headers, body, opts = {}) {
+function formatRequest(method, url, headers, body) {
   let inner = `${escapeHtml(method)} ${escapeHtml(url)}\n`
   if (headers) {
     for (const [k, v] of Object.entries(headers)) {
@@ -209,12 +197,12 @@ function formatRequest(method, url, headers, body, opts = {}) {
     }
   }
   if (body) {
-    inner += `\n${renderJSONWithColoredJWTs(body, opts.jwtFields)}`
+    inner += `\n${renderJSON(body)}`
   }
   return tokenWrap(inner)
 }
 
-function formatResponse(status, headers, body, opts = {}) {
+function formatResponse(status, headers, body) {
   let inner = `HTTP ${status}\n`
   if (headers) {
     for (const [k, v] of Object.entries(headers)) {
@@ -222,18 +210,9 @@ function formatResponse(status, headers, body, opts = {}) {
     }
   }
   if (body) {
-    inner += `\n${renderJSONWithColoredJWTs(body, opts.jwtFields)}`
+    inner += `\n${renderJSON(body)}`
   }
   return tokenWrap(inner)
-}
-
-// "REQUEST" / "RESPONSE" labels above a tokenWrap. Used when a single
-// log step surfaces both sides of an HTTP exchange — makes it obvious at a
-// glance which block is the request (what we sent) vs. the response (what
-// the server returned), instead of one unlabeled token-wrap that reads
-// ambiguously as either.
-function txLabel(text) {
-  return `<div class="tx-label">${escapeHtml(text)}</div>`
 }
 
 function formatToken(label, token, decoded) {
@@ -245,6 +224,19 @@ function formatToken(label, token, decoded) {
     <details class="section-group" open>
       <summary class="section-heading"><span>Decoded</span>${CHEVRON_SVG}</summary>
       ${tokenWrap(renderJSON(decoded))}
+    </details>
+  `
+}
+
+// Inline variant of formatToken used by Authorization Granted — no outer
+// collapsible, since the surrounding "Authorization Granted" step already
+// labels the token.
+function formatAuthToken(token) {
+  return `
+    ${tokenWrap(renderEncodedJWT(token), 'encoded')}
+    <details class="section-group" open>
+      <summary class="section-heading"><span>Decoded</span>${CHEVRON_SVG}</summary>
+      ${tokenWrap(renderJSON(decodeJWTPayloadBrowser(token)))}
     </details>
   `
 }
@@ -966,13 +958,12 @@ async function runAuthorizationAgainstPS(psUrl, scope, hints) {
   }
 
   const psReqStep = addLogStep(`POST ${new URL(tokenEndpoint).pathname}`, 'pending',
-    txLabel('Request') +
     formatRequest('POST', tokenEndpoint, {
       'Content-Type': 'application/json',
       'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
       'Signature': 'sig=:...:',
       'Signature-Key': `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`,
-    }, psRequestBody, { jwtFields: ['resource_token'] })
+    }, psRequestBody)
   )
 
   try {
@@ -999,18 +990,11 @@ async function runAuthorizationAgainstPS(psUrl, scope, hints) {
     const psPath = new URL(tokenEndpoint).pathname
     resolveStep(psReqStep, psRes.ok ? 'success' : 'error', `POST ${psPath} \u2192 ${psRes.status}`)
 
-    // Append the response into the same step so the reader sees the full
-    // exchange (request above, response below) in one place. auth_token
-    // gets the tri-color JWT rendering if present.
-    appendToStep(psReqStep,
-      txLabel('Response') +
-      formatResponse(psRes.status, responseHeaders, psBody, { jwtFields: ['auth_token'] })
-    )
-
     if (psRes.status === 200 && psBody?.auth_token) {
-      // No separate "Authorization Granted" step — the colored auth_token
-      // in the response above is the full proof of grant. Carry the CTA.
-      appendToStep(psReqStep, anotherRequestButton())
+      addLogStep('Authorization Granted', 'success',
+        formatAuthToken(psBody.auth_token) +
+        anotherRequestButton()
+      )
       // await callDemoResourceApi(psBody.auth_token)
     } else if (psRes.status === 202) {
       // Interaction required. This can still happen on a scope upgrade.
@@ -1022,24 +1006,6 @@ async function runAuthorizationAgainstPS(psUrl, scope, hints) {
         url: fromHeader.url || psMetadata.interaction_endpoint,
       }
       const pollUrl = psRes.headers.get('location') || psBody?.location
-      // Render order: long-poll step first (conceptually the response to
-      // the 202 above), then the interaction/QR step (what the user does
-      // next). Mirrors the bootstrap flow and matches the byte-flow.
-      let pollStep = null
-      if (pollUrl) {
-        const absolutePollUrl = new URL(pollUrl, tokenEndpoint).href
-        const pollPath = new URL(absolutePollUrl).pathname
-        pollStep = addLogStep(`GET ${pollPath} (long-poll)`, 'pending',
-          `<p>Long-polling the PS pending URL for the auth_token. <code>Prefer: wait=30</code> asks the PS to hold the request for up to 30s; on 202 the client loops immediately.</p>` +
-          txLabel('Request') +
-          formatRequest('GET', absolutePollUrl, {
-            'Prefer': 'wait=30',
-            'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
-            'Signature': 'sig=:...:',
-            'Signature-Key': `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`,
-          }, null)
-        )
-      }
       const interactionStep = addLogStep('Interaction Required', 'pending',
         formatResponse(202, responseHeaders, psBody) +
         renderInteraction(interaction, pollUrl, 'authorize')
@@ -1055,7 +1021,7 @@ async function runAuthorizationAgainstPS(psUrl, scope, hints) {
           psUrl,
           scope,
         })
-        startAuthTokenPolling(pollUrl, tokenEndpoint, interactionStep, pollStep)
+        startAuthTokenPolling(pollUrl, tokenEndpoint, interactionStep)
       }
     } else {
       addLogStep('Person Server Response', psRes.ok ? 'success' : 'error',
@@ -1295,7 +1261,7 @@ if (document.readyState === 'complete') {
 // and loop immediately on 202. Agent token + ephemeral key are snapshotted
 // once at start; the polling is signed with sig=jwt using them.
 
-async function startAuthTokenPolling(pollUrl, baseUrl, interactionStep, pollStep) {
+async function startAuthTokenPolling(pollUrl, baseUrl, interactionStep) {
   const absolutePollUrl = new URL(pollUrl, baseUrl).href
   const keyPair = window.aauthEphemeral.get()
   const agentToken = localStorage.getItem('aauth-agent-token')
@@ -1303,23 +1269,15 @@ async function startAuthTokenPolling(pollUrl, baseUrl, interactionStep, pollStep
   const signingJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
 
   const pollPath = new URL(absolutePollUrl).pathname
-  // Caller may pre-create the step so the log can be ordered as
-  // "POST /token → 202 → GET /pending (long-poll) → Interaction Required"
-  // — matches the byte-flow and mirrors pollForBootstrapToken. When not
-  // supplied (e.g. resume path with no fresh 202), create inline so the
-  // poll still renders as a log entry.
-  if (!pollStep) {
-    pollStep = addLogStep(`GET ${pollPath} (long-poll)`, 'pending',
-      `<p>Long-polling the PS pending URL for the auth_token. <code>Prefer: wait=30</code> asks the PS to hold the request for up to 30s; on 202 the client loops immediately.</p>` +
-      txLabel('Request') +
-      formatRequest('GET', absolutePollUrl, {
-        'Prefer': 'wait=30',
-        'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
-        'Signature': 'sig=:...:',
-        'Signature-Key': `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`,
-      }, null)
-    )
-  }
+  const pollStep = addLogStep(`GET ${pollPath} (long-poll)`, 'pending',
+    `<p>Long-polling the PS pending URL for the auth_token. <code>Prefer: wait=30</code> asks the PS to hold the request for up to 30s; on 202 the client loops immediately.</p>` +
+    formatRequest('GET', absolutePollUrl, {
+      'Prefer': 'wait=30',
+      'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
+      'Signature': 'sig=:...:',
+      'Signature-Key': `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`,
+    }, null)
+  )
 
   while (true) {
     try {
@@ -1336,13 +1294,9 @@ async function startAuthTokenPolling(pollUrl, baseUrl, interactionStep, pollStep
         const body = await res.json()
         resolveStep(pollStep, 'success', `GET ${pollPath} \u2192 200`)
         resolveStep(interactionStep, 'success', 'Interaction Completed')
-        // Fold the full response (with auth_token color-coded) into the
-        // poll step — no separate "Authorization Granted" row needed.
-        appendToStep(pollStep,
-          txLabel('Response') +
-          formatResponse(200, null, body, { jwtFields: ['auth_token'] }) +
-          anotherRequestButton()
-        )
+        addLogStep('Authorization Granted', 'success',
+          (body.auth_token ? formatAuthToken(body.auth_token) : '') +
+          anotherRequestButton())
         // if (body.auth_token) await callDemoResourceApi(body.auth_token)
         return
       }
@@ -1352,11 +1306,8 @@ async function startAuthTokenPolling(pollUrl, baseUrl, interactionStep, pollStep
         const label = res.status === 403 ? 'Interaction Denied' : 'Interaction Timed Out'
         resolveStep(pollStep, 'error', `GET ${pollPath} \u2192 ${res.status}`)
         resolveStep(interactionStep, 'error', label)
-        appendToStep(pollStep,
-          txLabel('Response') +
-          formatResponse(res.status, null, body) +
-          anotherRequestButton()
-        )
+        addLogStep(`Authorization ${res.status === 403 ? 'Denied' : 'Timed Out'}`, 'error',
+          formatResponse(res.status, null, body) + anotherRequestButton())
         return
       }
       // 202 → loop immediately (server already held up to 30s)

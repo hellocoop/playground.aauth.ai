@@ -486,14 +486,20 @@ details.log-section > summary.log-section-heading {
   gap: 0.5rem;
 }
 details.log-section > summary::-webkit-details-marker { display: none; }
-details.log-section > summary.log-section-heading > .log-section-title {
-  margin-right: auto;
-}
-details.log-section > summary.log-section-heading > .section-chevron {
+details.log-section > summary.log-section-heading::after {
+  content: '';
+  margin-left: auto;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  transition: transform 0.15s ease;
+  transform: rotate(-90deg);
   opacity: 0.7;
 }
-details.log-section[open] > summary.log-section-heading > .section-chevron {
-  transform: rotate(180deg);
+details.log-section[open] > summary.log-section-heading::after {
+  transform: rotate(0deg);
 }
 /* Visual divider between consecutive ceremony sections (Bootstrap +
    Refresh within the same log, for example). First section gets no
@@ -590,19 +596,6 @@ details.log-section + details.log-section {
 .json-string { color: #4ade80; }
 .json-num { color: #60a5fa; }
 .json-bool { color: #fb923c; }
-
-/* "REQUEST" / "RESPONSE" labels above their respective token-wraps inside
-   a combined log step. Keeps the two halves visually distinct without a
-   nested <details> collapse. */
-.tx-label {
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin: 0 0 0.35rem;
-}
-.tx-label + .token-wrap { margin-top: 0; }
-.token-wrap + .tx-label { margin-top: 0.75rem; }
 
 /* Interaction */
 .interaction-box {
