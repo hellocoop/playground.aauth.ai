@@ -444,7 +444,7 @@ async function runBootstrap(psUrl, hints) {
   // device paths live on resource calls (whoami), not bootstrap.
   addLogStep(copy('bootstrap.ps_consent_prompt.label'), 'pending',
     desc('bootstrap.ps_consent_prompt') +
-    `<div class="interaction-box"><p class="interaction-heading">Redirecting to Person Server for consent…</p></div>`
+    `<div class="interaction-box interaction-box-centered"><p class="interaction-heading">Redirecting to Person Server for consent…</p></div>`
   )
   savePendingBootstrap({
     pollUrl: absolutePollUrl,
@@ -463,10 +463,12 @@ async function runBootstrap(psUrl, hints) {
   }
 
   // No interaction URL (spec violation by the PS) — fall through and
-  // log the bad state so the user isn't stuck on an empty screen.
+  // log the bad state so the user isn't stuck on an empty screen. No
+  // Another Request button here because .js-scroll-authz targets
+  // Resource Request, which isn't the right context from a bootstrap
+  // failure; Reset is the escape hatch.
   addLogStep('Person Server returned no interaction URL', 'error',
-    '<p>Bootstrap cannot continue — PS response lacks interaction_endpoint and aauth-requirement url.</p>' +
-    anotherRequestButton())
+    '<p>Bootstrap cannot continue — PS response lacks interaction_endpoint and aauth-requirement url.</p>')
   return false
 
   addLogStep(copy('bootstrap.ps_bootstrap_token_received.label'), 'success',
@@ -554,8 +556,11 @@ async function _pollForBootstrapTokenImpl(absolutePollUrl, keyPair, publicJwk, i
         clearPendingBootstrap()
         resolveStep(pollStep, 'error', fmt(copy('bootstrap.ps_pending_longpoll.label_resolved_template'), { path: pollPath, status: 403 }))
         resolveStep(interactionStep, 'error', 'Consent Denied')
+        // No anotherRequestButton here — .js-scroll-authz scrolls to the
+        // Resource Request section, which doesn't make sense from a
+        // bootstrap failure. User can hit Reset to retry.
         addLogStep(copy('bootstrap.ps_user_denied.label'), 'error',
-          formatResponse(403, null, await res.json().catch(() => null)) + anotherRequestButton())
+          formatResponse(403, null, await res.json().catch(() => null)))
         return null
       }
       if (res.status === 404) {
@@ -563,7 +568,7 @@ async function _pollForBootstrapTokenImpl(absolutePollUrl, keyPair, publicJwk, i
         resolveStep(pollStep, 'error', fmt(copy('bootstrap.ps_pending_longpoll.label_resolved_template'), { path: pollPath, status: 404 }))
         resolveStep(interactionStep, 'error', 'Interaction Expired')
         addLogStep('Interaction expired', 'error',
-          formatResponse(404, null, await res.json().catch(() => null)) + anotherRequestButton())
+          formatResponse(404, null, await res.json().catch(() => null)))
         return null
       }
       if (res.status === 408) {
@@ -571,7 +576,7 @@ async function _pollForBootstrapTokenImpl(absolutePollUrl, keyPair, publicJwk, i
         resolveStep(pollStep, 'error', fmt(copy('bootstrap.ps_pending_longpoll.label_resolved_template'), { path: pollPath, status: 408 }))
         resolveStep(interactionStep, 'error', 'Consent Timed Out')
         addLogStep(copy('bootstrap.ps_interaction_timed_out.label'), 'error',
-          desc('bootstrap.ps_interaction_timed_out') + formatResponse(408, null, null) + anotherRequestButton())
+          desc('bootstrap.ps_interaction_timed_out') + formatResponse(408, null, null))
         return null
       }
       // 202 → loop immediately

@@ -827,6 +827,21 @@ details.log-section + details.log-section {
 }
 .interaction-box > * { position: relative; }
 
+/* Centered variant — used for the bootstrap "Redirecting to Person
+   Server for consent…" state. No QR, no button, just a one-line
+   status; pin it to the middle of the box so the yellow ambient
+   frame doesn't read as "something went wrong, the content's
+   missing." */
+.interaction-box.interaction-box-centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+}
+.interaction-box.interaction-box-centered .interaction-heading {
+  margin: 0;
+}
+
 /* Approved overlay — shown when the parent log-step resolves to success */
 .interaction-approved {
   display: none;

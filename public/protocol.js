@@ -3361,7 +3361,7 @@ ${renderJSON(body)}`;
     addLogStep(
       copy("bootstrap.ps_consent_prompt.label"),
       "pending",
-      desc("bootstrap.ps_consent_prompt") + `<div class="interaction-box"><p class="interaction-heading">Redirecting to Person Server for consent\u2026</p></div>`
+      desc("bootstrap.ps_consent_prompt") + `<div class="interaction-box interaction-box-centered"><p class="interaction-heading">Redirecting to Person Server for consent\u2026</p></div>`
     );
     savePendingBootstrap({
       pollUrl: absolutePollUrl,
@@ -3377,7 +3377,7 @@ ${renderJSON(body)}`;
     addLogStep(
       "Person Server returned no interaction URL",
       "error",
-      "<p>Bootstrap cannot continue \u2014 PS response lacks interaction_endpoint and aauth-requirement url.</p>" + anotherRequestButton()
+      "<p>Bootstrap cannot continue \u2014 PS response lacks interaction_endpoint and aauth-requirement url.</p>"
     );
     return false;
     addLogStep(
@@ -3445,7 +3445,7 @@ ${renderJSON(body)}`;
           addLogStep(
             copy("bootstrap.ps_user_denied.label"),
             "error",
-            formatResponse(403, null, await res.json().catch(() => null)) + anotherRequestButton()
+            formatResponse(403, null, await res.json().catch(() => null))
           );
           return null;
         }
@@ -3456,7 +3456,7 @@ ${renderJSON(body)}`;
           addLogStep(
             "Interaction expired",
             "error",
-            formatResponse(404, null, await res.json().catch(() => null)) + anotherRequestButton()
+            formatResponse(404, null, await res.json().catch(() => null))
           );
           return null;
         }
@@ -3467,7 +3467,7 @@ ${renderJSON(body)}`;
           addLogStep(
             copy("bootstrap.ps_interaction_timed_out.label"),
             "error",
-            desc("bootstrap.ps_interaction_timed_out") + formatResponse(408, null, null) + anotherRequestButton()
+            desc("bootstrap.ps_interaction_timed_out") + formatResponse(408, null, null)
           );
           return null;
         }

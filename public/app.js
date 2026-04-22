@@ -206,16 +206,16 @@ window.aauthWebAuthn = {
 // Scrolls to the Agent Identity card on first reveal so a post-OAuth
 // redirect-back lands the viewport on the next actionable block instead
 // of wherever the Bootstrap section happened to be.
+// Toggle post-bootstrap panels into the visible state. No scroll, no
+// auto-expand — callers decide when to do those:
+//   applyBootstrapResult (fresh-completion path) scrolls to Resource
+//     Request and opens the Agent Token details.
+//   restoreAgentTokenAndKey (page reload) does neither, so the user
+//     lands on the Bootstrap fieldset with tokens collapsed.
 function setAuthenticated(_label) {
   document.getElementById('bootstrap-controls')?.classList.add('hidden')
-  const authSection = document.getElementById('auth-section')
-  const resourceSection = document.getElementById('resource-section')
-  authSection?.classList.remove('hidden')
-  resourceSection?.classList.remove('hidden')
-  // Defer one frame so layout settles (hidden → visible) before scroll.
-  requestAnimationFrame(() => {
-    authSection?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  })
+  document.getElementById('auth-section')?.classList.remove('hidden')
+  document.getElementById('resource-section')?.classList.remove('hidden')
 }
 
 // Pre-bootstrap state: show only the Bootstrap section's pre-ceremony
@@ -314,10 +314,19 @@ async function restoreAgentTokenAndKey() {
 }
 
 // Applied by protocol.js after a successful bootstrap or refresh call.
+// Fresh-completion path: scroll to the Resource Request section (so
+// the user lands on the next actionable block) and open the Agent
+// Token / Decoded Payload details (they're interesting right now,
+// but would just be noise on a subsequent page reload).
 function applyBootstrapResult(result) {
   saveAgentToken(result.agent_token)
   displayAgentToken({ agent_token: result.agent_token, agent_id: result.agent_id })
   setAuthenticated(result.agent_id)
+  document.getElementById('agent-token-details')?.setAttribute('open', '')
+  document.getElementById('decoded-payload-details')?.setAttribute('open', '')
+  requestAnimationFrame(() => {
+    document.getElementById('resource-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
 }
 window.aauthApplyBootstrapResult = applyBootstrapResult
 

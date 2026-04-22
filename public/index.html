@@ -161,7 +161,15 @@
               <button class="copy-btn" type="button" data-copy-target="#agent-id" aria-label="Copy"></button>
             </div>
           </div>
-          <details class="section-group" open>
+          <!--
+            Agent Token + Decoded Payload start collapsed — on a page
+            reload they'd otherwise shove the Resource Request panel
+            below the fold on first paint. applyBootstrapResult
+            (fresh-completion path only) opens them programmatically
+            so the just-finished bootstrap ceremony lands with tokens
+            visible; reloads keep them closed until the user opts in.
+          -->
+          <details class="section-group" id="agent-token-details">
             <summary class="section-heading">
               <span>Agent Token (aa-agent+jwt)</span>
               <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
@@ -171,7 +179,7 @@
               <div class="token-display" id="agent-token-raw"></div>
             </div>
           </details>
-          <details class="section-group" open>
+          <details class="section-group" id="decoded-payload-details">
             <summary class="section-heading">
               <span>Decoded Payload</span>
               <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
