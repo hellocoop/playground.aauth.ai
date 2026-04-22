@@ -425,6 +425,25 @@ a { color: var(--accent); }
 .log-step.success { border-left-color: var(--success); }
 .log-step.pending { border-left-color: #eab308; }
 .log-step.error { border-left-color: var(--error); }
+
+/* When applyBootstrapResult moves #agent-token-details and
+   #decoded-payload-details INTO the log-section after a successful
+   ceremony, give them the same green left-trace styling as the .log-step
+   siblings above so the line continues unbroken down to the end of the
+   ceremony's artifacts. These rules only apply when the token details
+   sit inside a .log-section; in the stash or as siblings of
+   #bootstrap-log they render without the border. */
+details.log-section > #agent-token-details,
+details.log-section > #decoded-payload-details {
+  border-left: 3px solid var(--success);
+  padding-left: 1rem;
+  padding-bottom: 1rem;
+  margin-bottom: 0;
+}
+details.log-section > #agent-token-details:last-child,
+details.log-section > #decoded-payload-details:last-child {
+  padding-bottom: 0;
+}
 .log-step summary {
   font-size: 0.9rem;
   cursor: pointer;
@@ -553,6 +572,11 @@ a.hello-btn { text-decoration: none; }
 .protocol-log {
   margin-top: 1rem;
 }
+/* Bootstrap-log sits directly under the fieldset legend while the
+   ceremony is running (bootstrap-controls is hidden), so there's
+   nothing above it to push away from — the 1rem margin just reads
+   as extra dead space between "BOOTSTRAP AGENT" and "BOOTSTRAP". */
+#bootstrap-log { margin-top: 0; }
 
 /* Each .log-step already carries its own status-colored left border, so
    the stacked steps form the green protocol-trace line on their own.
