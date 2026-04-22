@@ -264,11 +264,10 @@ a { color: var(--accent); }
 /* Sibling spacing between the two Agent Token details rows — without
    this they butt right against each other and the "Decoded Payload"
    heading reads as if it's part of the Agent Token block above. */
-#token-section .section-group + .section-group {
+#agent-token-details + #decoded-payload-details {
   margin-top: 0.75rem;
 }
 .section-group:last-child { margin-bottom: 0; }
-#token-section .section-group { margin-bottom: 0; }
 .token-wrap + .section-group { margin-top: 1rem; }
 .section-group > .section-heading {
   display: inline-flex;

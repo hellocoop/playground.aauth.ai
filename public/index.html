@@ -143,52 +143,54 @@
       <div class="protocol-log hidden" id="bootstrap-log"></div>
 
       <!--
-        Post-bootstrap Agent Identity content lives inline here rather
-        than in its own fieldset — once bootstrap completes, the
-        agent-identity + agent-token panels drop in below the protocol
-        log so the whole ceremony reads as one continuous box instead
-        of jumping to a second card. setAuthenticated() removes the
-        `hidden` class. "Bootstrap complete" renders as an inset
-        legend on the fieldset's bottom border (mirroring the top
-        legend) via .section-legend-bottom.
+        Agent Token + Decoded Payload stash. These get moved into the
+        bootstrap-log's last <details class="log-section"> so they
+        collapse/expand together with the log (per user request: one
+        toggle reveals everything the ceremony produced). The stash
+        container is hidden; children become visible once JS reparents
+        them into the visible log section. clearLog moves them back
+        here before wiping bootstrap-log so a re-bootstrap doesn't
+        destroy them — applyBootstrapResult moves them back into the
+        fresh section. On page reload, rehydrateBootstrapLog creates
+        a closed "Bootstrap" section and parks them inside (both
+        <details> set to open=false so the reloaded page isn't noisy).
+      -->
+      <div id="bootstrap-token-stash" class="hidden">
+        <details class="section-group" id="agent-token-details">
+          <summary class="section-heading">
+            <span>Agent Token (aa-agent+jwt)</span>
+            <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+          </summary>
+          <div class="token-wrap">
+            <button class="copy-btn copy-btn-float" type="button" data-copy-target="#agent-token-raw" aria-label="Copy"></button>
+            <div class="token-display" id="agent-token-raw"></div>
+          </div>
+        </details>
+        <details class="section-group" id="decoded-payload-details">
+          <summary class="section-heading">
+            <span>Decoded Payload</span>
+            <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+          </summary>
+          <div class="token-wrap">
+            <button class="copy-btn copy-btn-float" type="button" data-copy-target="#token-payload" aria-label="Copy"></button>
+            <div class="token-display" id="token-payload"></div>
+          </div>
+        </details>
+      </div>
+
+      <!--
+        Post-bootstrap Agent Identity row pinned to the bottom of the
+        fieldset so toggling the bootstrap log above doesn't hide the
+        user-visible identity. "Bootstrap complete" renders as an inset
+        legend on the fieldset's bottom border via .section-legend-bottom.
       -->
       <div id="auth-section" class="hidden" data-test="auth-card">
-        <div id="token-section">
-          <div id="agent-id-row">
-            <label>Agent Identity</label>
-            <div class="readonly-field">
-              <span class="readonly-field-text" id="agent-id"></span>
-              <button class="copy-btn" type="button" data-copy-target="#agent-id" aria-label="Copy"></button>
-            </div>
+        <div id="agent-id-row">
+          <label>Agent Identity</label>
+          <div class="readonly-field">
+            <span class="readonly-field-text" id="agent-id"></span>
+            <button class="copy-btn" type="button" data-copy-target="#agent-id" aria-label="Copy"></button>
           </div>
-          <!--
-            Agent Token + Decoded Payload start collapsed — on a page
-            reload they'd otherwise shove the Resource Request panel
-            below the fold on first paint. applyBootstrapResult
-            (fresh-completion path only) opens them programmatically
-            so the just-finished bootstrap ceremony lands with tokens
-            visible; reloads keep them closed until the user opts in.
-          -->
-          <details class="section-group" id="agent-token-details">
-            <summary class="section-heading">
-              <span>Agent Token (aa-agent+jwt)</span>
-              <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
-            </summary>
-            <div class="token-wrap">
-              <button class="copy-btn copy-btn-float" type="button" data-copy-target="#agent-token-raw" aria-label="Copy"></button>
-              <div class="token-display" id="agent-token-raw"></div>
-            </div>
-          </details>
-          <details class="section-group" id="decoded-payload-details">
-            <summary class="section-heading">
-              <span>Decoded Payload</span>
-              <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
-            </summary>
-            <div class="token-wrap">
-              <button class="copy-btn copy-btn-float" type="button" data-copy-target="#token-payload" aria-label="Copy"></button>
-              <div class="token-display" id="token-payload"></div>
-            </div>
-          </details>
         </div>
         <div class="section-legend-bottom" aria-live="polite"><span class="step-status step-status-success">&#x2713;</span> Bootstrap complete</div>
       </div>

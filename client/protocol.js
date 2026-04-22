@@ -109,6 +109,18 @@ function currentLog() {
 function clearLog() {
   const log = currentLog()
   if (!log) return
+  // Preserve the Agent Token + Decoded Payload details: they're pinned
+  // to the bootstrap ceremony's log section for collapse/expand, but
+  // must survive a re-bootstrap's clearLog so their populated content
+  // isn't destroyed. Park them back in #bootstrap-token-stash; they
+  // re-enter the fresh log section via applyBootstrapResult.
+  if (log.id === 'bootstrap-log') {
+    const stash = document.getElementById('bootstrap-token-stash')
+    const tokenDetails = log.querySelector('#agent-token-details')
+    const decodedDetails = log.querySelector('#decoded-payload-details')
+    if (stash && tokenDetails) stash.appendChild(tokenDetails)
+    if (stash && decodedDetails) stash.appendChild(decodedDetails)
+  }
   log.innerHTML = ''
   log.classList.add('hidden')
 }
@@ -932,6 +944,14 @@ async function startBootstrap() {
     return
   }
 
+  // Hide the pre-bootstrap controls (PS picker, hints, Bootstrap CTA)
+  // synchronously as the first action so the button vanishes the
+  // instant the user clicks it — any async work that follows never
+  // leaves the CTA on screen. Re-shown only if runBootstrap errors
+  // out before the same-tab redirect.
+  const controls = document.getElementById('bootstrap-controls')
+  controls?.classList.add('hidden')
+
   // Route all log calls during bootstrap to the log container inside
   // the Bootstrap Agent fieldset. Kept set until startWhoami takes
   // over; refresh (which fires from inside startWhoami) logs into the
@@ -951,13 +971,6 @@ async function startBootstrap() {
   // Bootstrap agent button leaves the previous "Bound as …" line and
   // the old agent-token panels on screen while the new ceremony runs.
   window.aauthUI?.setUnauthenticated?.()
-
-  // Hide the pre-bootstrap controls (PS picker, hints, Bootstrap CTA)
-  // during the flow so the log gets the user's attention. On success,
-  // setAuthenticated() keeps them hidden; on failure, we re-show so
-  // the user can retry without needing Reset.
-  const controls = document.getElementById('bootstrap-controls')
-  controls?.classList.add('hidden')
 
   const result = await runBootstrap(psUrl, hints)
   if (!result) {
@@ -1378,7 +1391,10 @@ async function resumePendingInteraction() {
 
   // Resumed bootstrap — log into the same fieldset as the original
   // startBootstrap run so the user sees the full round trip (go to PS,
-  // return, mint agent token) in one contiguous section log.
+  // return, mint agent token) in one contiguous section log. Also hide
+  // the pre-bootstrap CTA — the ceremony is in progress, same as the
+  // post-click state before the redirect.
+  document.getElementById('bootstrap-controls')?.classList.add('hidden')
   setActiveLog('bootstrap-log')
   showLog()
   addLogSection(copy('sections.bootstrap_resumed'))
@@ -1400,6 +1416,62 @@ async function resumePendingInteraction() {
   return true
 }
 window.resumePendingInteraction = resumePendingInteraction
+
+// ── Bootstrap log rehydration / token-details placement ──
+//
+// The Agent Token + Decoded Payload details are anchored into the
+// bootstrap log's last <details class="log-section"> so the single
+// section toggle controls the entire ceremony trail + its artifacts.
+// Two entry points:
+//   placeTokenDetailsInBootstrapLog({ open }) — called by
+//     applyBootstrapResult right after a fresh ceremony; finds the last
+//     log section and moves the stashed details into it. open:true so
+//     the just-minted token is visible.
+//   rehydrateBootstrapLog() — called on page reload; creates a closed
+//     "Bootstrap" section (no steps, just the title) and parks the
+//     token details inside collapsed, so a reloaded page doesn't shove
+//     the Resource Request below the fold.
+function placeTokenDetailsInBootstrapLog({ open }) {
+  const log = document.getElementById('bootstrap-log')
+  if (!log) return
+  const sections = log.querySelectorAll(':scope > details.log-section')
+  const target = sections[sections.length - 1]
+  if (!target) return
+  log.classList.remove('hidden')
+  const tokenDetails = document.getElementById('agent-token-details')
+  const decodedDetails = document.getElementById('decoded-payload-details')
+  for (const el of [tokenDetails, decodedDetails]) {
+    if (!el) continue
+    if (open) el.setAttribute('open', '')
+    else el.removeAttribute('open')
+    target.appendChild(el)
+  }
+}
+window.aauthPlaceTokenDetails = placeTokenDetailsInBootstrapLog
+
+function rehydrateBootstrapLog() {
+  const log = document.getElementById('bootstrap-log')
+  if (!log) return
+  // If a real flow already ran on this page, don't clobber it.
+  if (log.querySelector(':scope > details.log-section')) return
+  const section = document.createElement('details')
+  section.className = 'log-section'
+  section.open = false
+  const summary = document.createElement('summary')
+  summary.className = 'log-section-heading'
+  summary.textContent = copy('sections.bootstrap')
+  section.appendChild(summary)
+  log.appendChild(section)
+  log.classList.remove('hidden')
+  const tokenDetails = document.getElementById('agent-token-details')
+  const decodedDetails = document.getElementById('decoded-payload-details')
+  for (const el of [tokenDetails, decodedDetails]) {
+    if (!el) continue
+    el.removeAttribute('open')
+    section.appendChild(el)
+  }
+}
+window.aauthRehydrateBootstrapLog = rehydrateBootstrapLog
 
 // ── Pending-authorize state (survives same-tab redirect to wallet) ──
 
@@ -1447,7 +1519,11 @@ async function resumePendingAuthorize() {
   _resumeAuthorizePolling = true
 
   // Resumed authorize — pick up the log inside the Resource Request
-  // fieldset where the original Call click logged.
+  // fieldset where the original Call click logged. Hide the Call button
+  // too: the flow is in progress (same as directly after the click),
+  // and we don't want it competing with the Another Request button that
+  // renders when the poll terminates.
+  document.querySelector('#resource-section .authz-actions')?.classList.add('hidden')
   setActiveLog('resource-log')
   showLog()
   addLogSection(copy('sections.whoami_resumed'))

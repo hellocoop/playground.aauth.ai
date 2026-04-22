@@ -2,11 +2,11 @@
   "_about": "Single source of truth for every label + description rendered into the protocol log. Templates use {placeholder} for dynamic values substituted at runtime. All references to the agent server are spelled 'Agent Server' (not 'AS') to avoid conflation with 'Access Server' elsewhere in the AAuth protocol. The person server is spelled 'Person Server' everywhere (including terse HTTP lines) for consistency.",
 
   "sections": {
-    "bootstrap": "Bootstrap logs",
-    "bootstrap_resumed": "Bootstrap logs (resumed)",
-    "refresh": "Refresh logs",
-    "whoami": "Whoami request logs",
-    "whoami_resumed": "Whoami request logs (resumed)"
+    "bootstrap": "Bootstrap",
+    "bootstrap_resumed": "Bootstrap (resumed)",
+    "refresh": "Refresh",
+    "whoami": "Whoami",
+    "whoami_resumed": "Whoami (resumed)"
   },
 
   "bootstrap": {
@@ -202,7 +202,7 @@
   },
 
   "ui": {
-    "another_request_button": "Another Request",
+    "another_request_button": "Another Authorization Request",
     "approve_at_ps": {
       "bootstrap_heading": "Approve this agent",
       "authorize_heading": "Approve this authorization request",

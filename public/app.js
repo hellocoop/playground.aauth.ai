@@ -218,11 +218,12 @@ function setAuthenticated(_label) {
   document.getElementById('resource-section')?.classList.remove('hidden')
 }
 
-// Pre-bootstrap state: show only the Bootstrap section's pre-ceremony
-// controls; hide Agent Identity and Resource Request.
+// Pre-bootstrap state: hide Agent Identity and Resource Request. Does
+// NOT toggle #bootstrap-controls — its visibility is managed explicitly
+// by callers (startBootstrap hides it on click; runBootstrap re-shows
+// on failure) so a re-bootstrap click never briefly re-exposes the CTA.
 function setUnauthenticated() {
   document.getElementById('bootstrap-section')?.classList.remove('hidden')
-  document.getElementById('bootstrap-controls')?.classList.remove('hidden')
   document.getElementById('auth-section')?.classList.add('hidden')
   document.getElementById('resource-section')?.classList.add('hidden')
 }
@@ -314,16 +315,15 @@ async function restoreAgentTokenAndKey() {
 }
 
 // Applied by protocol.js after a successful bootstrap or refresh call.
-// Fresh-completion path: scroll to the Resource Request section (so
-// the user lands on the next actionable block) and open the Agent
-// Token / Decoded Payload details (they're interesting right now,
-// but would just be noise on a subsequent page reload).
+// Fresh-completion path: move Agent Token + Decoded Payload into the
+// bootstrap log's last section (open) so the toggle for that section
+// controls everything the ceremony produced, then scroll the viewport
+// to the Resource Request block (the next actionable step).
 function applyBootstrapResult(result) {
   saveAgentToken(result.agent_token)
   displayAgentToken({ agent_token: result.agent_token, agent_id: result.agent_id })
   setAuthenticated(result.agent_id)
-  document.getElementById('agent-token-details')?.setAttribute('open', '')
-  document.getElementById('decoded-payload-details')?.setAttribute('open', '')
+  window.aauthPlaceTokenDetails?.({ open: true })
   requestAnimationFrame(() => {
     document.getElementById('resource-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
@@ -603,8 +603,6 @@ document.addEventListener('click', (e) => {
 //   pending-authorize state. Does not touch binding/token; re-requesting
 //   authorization reuses the same agent identity.
 document.getElementById('bootstrap-reset-btn')?.addEventListener('click', async () => {
-  if (!confirm('Reset bootstrap? This clears your agent binding, tokens, and WebAuthn linkage — on the agent server too, so the next Bootstrap runs a full register (new passkey).')) return
-
   // Tell the server to drop the (Person Server, user) binding so the next
   // bootstrap runs the register path (new WebAuthn credential, new
   // aauth_sub). If we don't have both a saved agent_token and the
@@ -641,8 +639,6 @@ document.getElementById('bootstrap-reset-btn')?.addEventListener('click', async 
 })
 
 document.getElementById('reset-btn')?.addEventListener('click', () => {
-  if (!confirm('Reset resource request? This clears your scope selections and hints. Your agent binding stays intact.')) return
-
   localStorage.removeItem(SETTINGS_KEY)
   localStorage.removeItem('aauth-pending-authorize')
   localStorage.removeItem('aauth-pending-whoami')
@@ -656,10 +652,15 @@ document.getElementById('reset-btn')?.addEventListener('click', () => {
   if (restored) {
     const payload = decodeJWTPayload(agentToken)
     setAuthenticated(payload.sub)
+    // Reload path: park the restored token details inside a closed
+    // "Bootstrap" log section so they're reachable via one toggle
+    // instead of flooding the viewport on page load.
+    window.aauthRehydrateBootstrapLog?.()
   } else if (bindingKey) {
     // Binding exists but agent_token expired/missing. We're still bootstrapped;
     // Continue will refresh. Show the post-bootstrap UI.
     setAuthenticated(bindingSub || bindingPs || 'agent')
+    window.aauthRehydrateBootstrapLog?.()
   } else if (localStorage.getItem('aauth-pending-bootstrap')) {
     // First-bootstrap resume case: no agent_token exists yet, but the
     // ephemeral key was saved to IndexedDB before the PS redirect. Load

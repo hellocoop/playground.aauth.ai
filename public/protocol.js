@@ -2831,11 +2831,11 @@
   var log_text_default = {
     _about: "Single source of truth for every label + description rendered into the protocol log. Templates use {placeholder} for dynamic values substituted at runtime. All references to the agent server are spelled 'Agent Server' (not 'AS') to avoid conflation with 'Access Server' elsewhere in the AAuth protocol. The person server is spelled 'Person Server' everywhere (including terse HTTP lines) for consistency.",
     sections: {
-      bootstrap: "Bootstrap logs",
-      bootstrap_resumed: "Bootstrap logs (resumed)",
-      refresh: "Refresh logs",
-      whoami: "Whoami request logs",
-      whoami_resumed: "Whoami request logs (resumed)"
+      bootstrap: "Bootstrap",
+      bootstrap_resumed: "Bootstrap (resumed)",
+      refresh: "Refresh",
+      whoami: "Whoami",
+      whoami_resumed: "Whoami (resumed)"
     },
     bootstrap: {
       generate_ephemeral: {
@@ -3023,7 +3023,7 @@
       }
     },
     ui: {
-      another_request_button: "Another Request",
+      another_request_button: "Another Authorization Request",
       approve_at_ps: {
         bootstrap_heading: "Approve this agent",
         authorize_heading: "Approve this authorization request",
@@ -3100,6 +3100,13 @@
   function clearLog() {
     const log = currentLog();
     if (!log) return;
+    if (log.id === "bootstrap-log") {
+      const stash = document.getElementById("bootstrap-token-stash");
+      const tokenDetails = log.querySelector("#agent-token-details");
+      const decodedDetails = log.querySelector("#decoded-payload-details");
+      if (stash && tokenDetails) stash.appendChild(tokenDetails);
+      if (stash && decodedDetails) stash.appendChild(decodedDetails);
+    }
     log.innerHTML = "";
     log.classList.add("hidden");
   }
@@ -3765,6 +3772,8 @@ ${renderJSON(body)}`;
       alert("Please choose or enter a Person Server URL");
       return;
     }
+    const controls = document.getElementById("bootstrap-controls");
+    controls?.classList.add("hidden");
     setActiveLog("bootstrap-log");
     clearLog();
     showLog();
@@ -3772,8 +3781,6 @@ ${renderJSON(body)}`;
     window.aauthBinding.clearBinding();
     localStorage.removeItem("aauth-agent-token");
     window.aauthUI?.setUnauthenticated?.();
-    const controls = document.getElementById("bootstrap-controls");
-    controls?.classList.add("hidden");
     const result = await runBootstrap(psUrl, hints);
     if (!result) {
       controls?.classList.remove("hidden");
@@ -4113,6 +4120,7 @@ ${renderJSON(body)}`;
     }
     if (_resumeInteractionPolling) return false;
     _resumeInteractionPolling = true;
+    document.getElementById("bootstrap-controls")?.classList.add("hidden");
     setActiveLog("bootstrap-log");
     showLog();
     addLogSection(copy("sections.bootstrap_resumed"));
@@ -4133,6 +4141,45 @@ ${renderJSON(body)}`;
     return true;
   }
   window.resumePendingInteraction = resumePendingInteraction;
+  function placeTokenDetailsInBootstrapLog({ open }) {
+    const log = document.getElementById("bootstrap-log");
+    if (!log) return;
+    const sections = log.querySelectorAll(":scope > details.log-section");
+    const target = sections[sections.length - 1];
+    if (!target) return;
+    log.classList.remove("hidden");
+    const tokenDetails = document.getElementById("agent-token-details");
+    const decodedDetails = document.getElementById("decoded-payload-details");
+    for (const el of [tokenDetails, decodedDetails]) {
+      if (!el) continue;
+      if (open) el.setAttribute("open", "");
+      else el.removeAttribute("open");
+      target.appendChild(el);
+    }
+  }
+  window.aauthPlaceTokenDetails = placeTokenDetailsInBootstrapLog;
+  function rehydrateBootstrapLog() {
+    const log = document.getElementById("bootstrap-log");
+    if (!log) return;
+    if (log.querySelector(":scope > details.log-section")) return;
+    const section = document.createElement("details");
+    section.className = "log-section";
+    section.open = false;
+    const summary = document.createElement("summary");
+    summary.className = "log-section-heading";
+    summary.textContent = copy("sections.bootstrap");
+    section.appendChild(summary);
+    log.appendChild(section);
+    log.classList.remove("hidden");
+    const tokenDetails = document.getElementById("agent-token-details");
+    const decodedDetails = document.getElementById("decoded-payload-details");
+    for (const el of [tokenDetails, decodedDetails]) {
+      if (!el) continue;
+      el.removeAttribute("open");
+      section.appendChild(el);
+    }
+  }
+  window.aauthRehydrateBootstrapLog = rehydrateBootstrapLog;
   var PENDING_AUTHZ_KEY = "aauth-pending-authorize";
   function savePendingAuthorize(state) {
     try {
@@ -4167,6 +4214,7 @@ ${renderJSON(body)}`;
     }
     if (_resumeAuthorizePolling) return false;
     _resumeAuthorizePolling = true;
+    document.querySelector("#resource-section .authz-actions")?.classList.add("hidden");
     setActiveLog("resource-log");
     showLog();
     addLogSection(copy("sections.whoami_resumed"));
