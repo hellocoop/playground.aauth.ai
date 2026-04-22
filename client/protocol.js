@@ -218,6 +218,13 @@ function appendStepBody(step, html) {
 }
 
 function anotherRequestButton() {
+  // Flow has reached a terminal state — re-show the resource-section's
+  // Call button so the user has both paths back to a fresh request
+  // (scroll up to the form, or click the Another button inline). Queued
+  // as a microtask so it runs after the caller inserts our HTML.
+  Promise.resolve().then(() => {
+    document.querySelector('#resource-section .authz-actions')?.classList.remove('hidden')
+  })
   return `<div class="log-actions"><button type="button" class="btn-outline js-scroll-authz">${escapeHtml(copy('ui.another_request_button'))}</button></div>`
 }
 
@@ -994,7 +1001,7 @@ async function runWhoamiCall(whoamiUrl, bindingPs, hints) {
   }
   const signingJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
 
-  addLogSection('Whoami request logs')
+  addLogSection(copy('sections.whoami'))
 
   const urlObj = new URL(whoamiUrl)
   const whoamiPathDisplay = urlObj.pathname + urlObj.search
@@ -1038,7 +1045,7 @@ async function runWhoamiCall(whoamiUrl, bindingPs, hints) {
     }
   } catch (err) {
     resolveStep(step1, 'error', `Agent → Whoami: GET ${whoamiPathDisplay} (network error)`)
-    appendStepBody(step1, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`)
+    appendStepBody(step1, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>` + anotherRequestButton())
     return
   }
 
@@ -1163,7 +1170,7 @@ async function runWhoamiCall(whoamiUrl, bindingPs, hints) {
     }
   } catch (err) {
     resolveStep(step2, 'error', `Agent → Person Server: POST ${psPath} (network error)`)
-    appendStepBody(step2, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`)
+    appendStepBody(step2, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>` + anotherRequestButton())
     return
   }
 
@@ -1190,14 +1197,17 @@ async function retryWhoami(whoamiUrl, whoamiPathDisplay, authToken, keyPair, sig
     })
     const body = await res.json().catch(() => null)
     resolveStep(step, res.ok ? 'success' : 'error', `Agent → Whoami: GET ${whoamiPathDisplay} → ${res.status}`)
-    appendStepBody(step, formatResponse(res.status, null, body))
     if (res.ok) {
+      // Skip the generic Response block — the "Identity claims received"
+      // step below renders the same JSON as the protocol-level response,
+      // so surfacing both just duplicates the payload.
       addLogStep('Identity claims received', 'success',
         `<p>These are the claims the Person Server released for the scopes you granted. Compare them against the decoded auth_token payload above — whoami returns them verbatim from the token.</p>` +
         tokenWrap(renderJSON(body)) +
         anotherRequestButton()
       )
     } else {
+      appendStepBody(step, formatResponse(res.status, null, body))
       appendStepBody(step, anotherRequestButton())
     }
   } catch (err) {
@@ -1409,9 +1419,9 @@ async function resumePendingAuthorize() {
   // fieldset where the original Call click logged.
   setActiveLog('resource-log')
   showLog()
-  addLogSection(copy('sections.authorize_resumed'))
-  const interactionStep = addLogStep(copy('authorize_resumed.ps_consent_prompt.label'), 'pending',
-    desc('authorize_resumed.ps_consent_prompt') +
+  addLogSection(copy('sections.whoami_resumed'))
+  const interactionStep = addLogStep(copy('whoami_resumed.ps_consent_prompt.label'), 'pending',
+    desc('whoami_resumed.ps_consent_prompt') +
     `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
   )
 
@@ -1528,12 +1538,18 @@ async function _startAuthTokenPollingImpl(pollUrl, baseUrl, interactionStep, pol
         if (v) respHeaders[key] = v
       }
       const body = await res.json().catch(() => null)
-      // Surface every cycle's response so the user sees each 202 retry
-      // (not just the terminal 200/403/408). Collapsed by default to keep
-      // the log readable across long waits.
-      appendStepBody(pollStep,
-        `<details class="section-group"><summary class="section-heading"><span>Cycle ${cycle} \u2192 ${res.status}</span>${CHEVRON_SVG}</summary>${formatResponse(res.status, respHeaders, body)}</details>`
-      )
+      // Surface every cycle's response so the user sees each 202 retry.
+      // On the first cycle, render the response inline — the outer step
+      // label already carries the status, so a "Cycle 1 → 200" wrapper
+      // is pure redundancy. From cycle 2 onward, wrap each response in a
+      // collapsible summary so long-poll loops stay readable.
+      if (cycle === 1) {
+        appendStepBody(pollStep, formatResponse(res.status, respHeaders, body))
+      } else {
+        appendStepBody(pollStep,
+          `<details class="section-group"><summary class="section-heading"><span>Cycle ${cycle} \u2192 ${res.status}</span>${CHEVRON_SVG}</summary>${formatResponse(res.status, respHeaders, body)}</details>`
+        )
+      }
       if (res.status === 200) {
         clearPendingAuthorize()
         resolveStep(pollStep, 'success', fmt(copy('authorize.ps_pending_longpoll.label_resolved_template'), { path: pollPath, status: 200 }))

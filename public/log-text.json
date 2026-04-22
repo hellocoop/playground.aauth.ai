@@ -5,8 +5,8 @@
     "bootstrap": "Bootstrap logs",
     "bootstrap_resumed": "Bootstrap logs (resumed)",
     "refresh": "Refresh logs",
-    "authorize": "Authorization logs",
-    "authorize_resumed": "Authorization logs (resumed)"
+    "whoami": "Whoami request logs",
+    "whoami_resumed": "Whoami request logs (resumed)"
   },
 
   "bootstrap": {
@@ -166,10 +166,10 @@
     }
   },
 
-  "authorize_resumed": {
+  "whoami_resumed": {
     "ps_consent_prompt": {
       "label": "User at Person Server: consent prompt (resumed)",
-      "description": "You returned mid-approval for a scope upgrade. The agent picks up the same pending request instead of starting over."
+      "description": "You returned mid-approval. The agent picks up the same pending request instead of starting over."
     }
   },
 
@@ -202,7 +202,7 @@
   },
 
   "ui": {
-    "another_request_button": "Another Authorization Request",
+    "another_request_button": "Another Request",
     "approve_at_ps": {
       "bootstrap_heading": "Approve this agent",
       "authorize_heading": "Approve this authorization request",

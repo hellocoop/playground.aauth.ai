@@ -405,12 +405,17 @@ a { color: var(--accent); }
   margin-bottom: 0;
 }
 
-/* Protocol log */
+/* Protocol log. padding-bottom (vs margin) keeps the status-colored
+   left border contiguous with the next step's — without it, consecutive
+   steps visually break into disconnected segments instead of reading as
+   one continuous trace. */
 .log-step {
   border-left: 3px solid var(--border);
   padding-left: 1rem;
-  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  margin-bottom: 0;
 }
+.log-step:last-child { padding-bottom: 0; }
 .log-step.success { border-left-color: var(--success); }
 .log-step.pending { border-left-color: #eab308; }
 .log-step.error { border-left-color: var(--error); }

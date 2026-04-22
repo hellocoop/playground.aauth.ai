@@ -2834,8 +2834,8 @@
       bootstrap: "Bootstrap logs",
       bootstrap_resumed: "Bootstrap logs (resumed)",
       refresh: "Refresh logs",
-      authorize: "Authorization logs",
-      authorize_resumed: "Authorization logs (resumed)"
+      whoami: "Whoami request logs",
+      whoami_resumed: "Whoami request logs (resumed)"
     },
     bootstrap: {
       generate_ephemeral: {
@@ -2990,10 +2990,10 @@
         description: ""
       }
     },
-    authorize_resumed: {
+    whoami_resumed: {
       ps_consent_prompt: {
         label: "User at Person Server: consent prompt (resumed)",
-        description: "You returned mid-approval for a scope upgrade. The agent picks up the same pending request instead of starting over."
+        description: "You returned mid-approval. The agent picks up the same pending request instead of starting over."
       }
     },
     demo_api: {
@@ -3023,7 +3023,7 @@
       }
     },
     ui: {
-      another_request_button: "Another Authorization Request",
+      another_request_button: "Another Request",
       approve_at_ps: {
         bootstrap_heading: "Approve this agent",
         authorize_heading: "Approve this authorization request",
@@ -3178,6 +3178,9 @@
     body.insertAdjacentHTML("beforeend", html);
   }
   function anotherRequestButton() {
+    Promise.resolve().then(() => {
+      document.querySelector("#resource-section .authz-actions")?.classList.remove("hidden");
+    });
     return `<div class="log-actions"><button type="button" class="btn-outline js-scroll-authz">${escapeHtml(copy("ui.another_request_button"))}</button></div>`;
   }
   function tokenWrap(innerHtml, extraClass = "") {
@@ -3806,7 +3809,7 @@ ${renderJSON(body)}`;
       return;
     }
     const signingJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
-    addLogSection("Whoami request logs");
+    addLogSection(copy("sections.whoami"));
     const urlObj = new URL(whoamiUrl);
     const whoamiPathDisplay = urlObj.pathname + urlObj.search;
     const step1 = addLogStep(
@@ -3845,7 +3848,7 @@ ${renderJSON(body)}`;
       }
     } catch (err) {
       resolveStep(step1, "error", `Agent \u2192 Whoami: GET ${whoamiPathDisplay} (network error)`);
-      appendStepBody(step1, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`);
+      appendStepBody(step1, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>` + anotherRequestButton());
       return;
     }
     const psMetadataUrl = `${bindingPs.replace(/\/$/, "")}/.well-known/aauth-person.json`;
@@ -3963,7 +3966,7 @@ ${renderJSON(body)}`;
       }
     } catch (err) {
       resolveStep(step2, "error", `Agent \u2192 Person Server: POST ${psPath} (network error)`);
-      appendStepBody(step2, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`);
+      appendStepBody(step2, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>` + anotherRequestButton());
       return;
     }
     await retryWhoami(whoamiUrl, whoamiPathDisplay, authToken, keyPair, signingJwk);
@@ -3988,7 +3991,6 @@ ${renderJSON(body)}`;
       });
       const body = await res.json().catch(() => null);
       resolveStep(step, res.ok ? "success" : "error", `Agent \u2192 Whoami: GET ${whoamiPathDisplay} \u2192 ${res.status}`);
-      appendStepBody(step, formatResponse(res.status, null, body));
       if (res.ok) {
         addLogStep(
           "Identity claims received",
@@ -3996,6 +3998,7 @@ ${renderJSON(body)}`;
           `<p>These are the claims the Person Server released for the scopes you granted. Compare them against the decoded auth_token payload above \u2014 whoami returns them verbatim from the token.</p>` + tokenWrap(renderJSON(body)) + anotherRequestButton()
         );
       } else {
+        appendStepBody(step, formatResponse(res.status, null, body));
         appendStepBody(step, anotherRequestButton());
       }
     } catch (err) {
@@ -4155,11 +4158,11 @@ ${renderJSON(body)}`;
     _resumeAuthorizePolling = true;
     setActiveLog("resource-log");
     showLog();
-    addLogSection(copy("sections.authorize_resumed"));
+    addLogSection(copy("sections.whoami_resumed"));
     const interactionStep = addLogStep(
-      copy("authorize_resumed.ps_consent_prompt.label"),
+      copy("whoami_resumed.ps_consent_prompt.label"),
       "pending",
-      desc("authorize_resumed.ps_consent_prompt") + `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
+      desc("whoami_resumed.ps_consent_prompt") + `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
     );
     let options = {};
     if (saved.whoamiUrl) {
@@ -4242,10 +4245,14 @@ ${renderJSON(body)}`;
           if (v) respHeaders[key] = v;
         }
         const body = await res.json().catch(() => null);
-        appendStepBody(
-          pollStep,
-          `<details class="section-group"><summary class="section-heading"><span>Cycle ${cycle} \u2192 ${res.status}</span>${CHEVRON_SVG}</summary>${formatResponse(res.status, respHeaders, body)}</details>`
-        );
+        if (cycle === 1) {
+          appendStepBody(pollStep, formatResponse(res.status, respHeaders, body));
+        } else {
+          appendStepBody(
+            pollStep,
+            `<details class="section-group"><summary class="section-heading"><span>Cycle ${cycle} \u2192 ${res.status}</span>${CHEVRON_SVG}</summary>${formatResponse(res.status, respHeaders, body)}</details>`
+          );
+        }
         if (res.status === 200) {
           clearPendingAuthorize();
           resolveStep(pollStep, "success", fmt(copy("authorize.ps_pending_longpoll.label_resolved_template"), { path: pollPath, status: 200 }));
