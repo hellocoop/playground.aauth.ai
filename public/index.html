@@ -211,6 +211,7 @@
 
       <div class="tab-row" role="tablist">
         <button class="tab tab-active" type="button" role="tab" aria-selected="true" data-tab="whoami">whoami</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" data-tab="r3">r3</button>
       </div>
 
       <div class="tab-panel" data-panel="whoami">
@@ -245,6 +246,41 @@
 
         <div class="authz-actions">
           <button id="whoami-btn" type="button" class="hello-btn hello-btn-black-on-dark">ō&nbsp;&nbsp;&nbsp;Whoami with Hellō</button>
+        </div>
+      </div>
+
+      <!--
+        R3 tab stub — structural duplicate of whoami so the tab row shows
+        both resources. Wiring to r3.aauth.dev is a separate task; the
+        colleague picking this up gets a familiar scaffold to populate.
+      -->
+      <div class="tab-panel" data-panel="r3" hidden>
+        <p class="tab-description">
+          Call
+          <a href="https://r3.aauth.dev/.well-known/aauth-resource.json" target="_blank" rel="noopener">r3.aauth.dev</a>
+          and get back the identity claims carried in your auth token.
+        </p>
+
+        <details class="section-group" open>
+          <summary class="section-heading">
+            <span>Identity scopes</span>
+            <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+          </summary>
+          <div class="scope-grid" id="r3-scope-grid"></div>
+        </details>
+
+        <div class="section-group">
+          <div class="section-heading section-heading-static">
+            <span>Request URL</span>
+          </div>
+          <div class="readonly-field">
+            <span class="readonly-field-text mono" id="r3-url-preview"></span>
+            <button class="copy-btn" type="button" data-copy-target="#r3-url-preview" aria-label="Copy"></button>
+          </div>
+        </div>
+
+        <div class="authz-actions">
+          <button id="r3-btn" type="button" class="hello-btn hello-btn-black-on-dark">ō&nbsp;&nbsp;&nbsp;R3 with Hellō</button>
         </div>
       </div>
 

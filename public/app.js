@@ -570,6 +570,27 @@ function renderCopyIcons(root = document) {
 renderCopyIcons()
 new MutationObserver(() => renderCopyIcons()).observe(document.body, { childList: true, subtree: true })
 
+// Resource Request tab switcher — toggles .tab-active on the buttons
+// and the `hidden` attribute on each .tab-panel. Tabs are stubs today
+// (only whoami is wired to a real flow; r3 is a duplicate placeholder
+// for a colleague to fill in), so the switcher is deliberately
+// content-agnostic — it just shows the matching panel by data-tab.
+document.querySelector('#resource-section .tab-row')?.addEventListener('click', (e) => {
+  const tab = e.target.closest('.tab')
+  if (!tab) return
+  const name = tab.dataset.tab
+  const row = tab.parentElement
+  const section = row.closest('#resource-section')
+  for (const t of row.querySelectorAll('.tab')) {
+    const active = t === tab
+    t.classList.toggle('tab-active', active)
+    t.setAttribute('aria-selected', active ? 'true' : 'false')
+  }
+  for (const panel of section.querySelectorAll('.tab-panel')) {
+    panel.hidden = panel.dataset.panel !== name
+  }
+})
+
 // Copy buttons — delegated. `data-copy` copies a literal string; `data-copy-target`
 // copies the textContent of the matched element. Toggles a 500ms "copied" state.
 document.addEventListener('click', (e) => {
