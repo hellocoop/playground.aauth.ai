@@ -567,6 +567,13 @@ a.hello-btn { text-decoration: none; }
   margin-top: 0.75rem;
 }
 
+/* Agent Identity row sits below the bootstrap-log wrapper. Without a
+   top margin it butts right up against the last Response/token box —
+   reads as part of the log block instead of a separate outcome. */
+#auth-section:not(.hidden) {
+  margin-top: 1rem;
+}
+
 /* Each addLogSection() call emits a <details class="log-section"> whose
    <summary> doubles as the section heading (BOOTSTRAP / REFRESH / …).
    The summary is styled to match the old static .log-section-heading

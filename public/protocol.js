@@ -3228,6 +3228,9 @@
       if (!log) continue;
       log.innerHTML = saved;
       log.classList.remove("hidden");
+      for (const section of log.querySelectorAll(":scope > details.log-section")) {
+        section.removeAttribute("open");
+      }
       if (id === "bootstrap-log") {
         document.getElementById("bootstrap-artifacts")?.classList.remove("hidden");
       }
@@ -3316,10 +3319,6 @@
     persistActiveLog();
   }
   function anotherRequestButton() {
-    const activeId = currentLog()?.id;
-    if (activeId && PERSIST_LOG_IDS.includes(activeId)) {
-      queueMicrotask(() => clearPersistedLog(activeId));
-    }
     return `<div class="log-actions"><button type="button" class="btn-outline js-scroll-authz">${escapeHtml(copy("ui.another_request_button"))}</button></div>`;
   }
   function tokenWrap(innerHtml, extraClass = "") {
@@ -3500,6 +3499,10 @@ ${renderJSON(body)}`;
         "Signature-Key": `sig=hwk;kty="${publicJwk.kty}";crv="${publicJwk.crv}";x="${publicJwk.x}"`
       }, null)
     );
+    if (pollStep) {
+      pollStep.dataset.pollKey = "bootstrap";
+      persistActiveLog();
+    }
     const consentStep = addLogStep(
       copy("bootstrap.ps_consent_prompt.label"),
       "pending",
@@ -3733,7 +3736,6 @@ ${renderJSON(body)}`;
       user_sub: bootstrapPayload.sub || ""
     });
     window.aauthApplyBootstrapResult(result);
-    appendStepBody(verifyStep, formatToken("Agent Token (aa-agent+jwt)", result.agent_token, decodeJWTPayloadBrowser(result.agent_token)));
     const psBootstrapEndpoint = ctx.psBootstrapEndpoint || (ctx.psUrl ? `${ctx.psUrl.replace(/\/$/, "")}/bootstrap` : null);
     if (psBootstrapEndpoint && result.agent_token) {
       const announcePath = new URL(psBootstrapEndpoint).pathname;
@@ -3768,7 +3770,6 @@ ${renderJSON(body)}`;
         appendStepBody(announceStep, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`);
       }
     }
-    queueMicrotask(() => clearPersistedLog("bootstrap-log"));
     return { result };
   }
   async function deriveBindingKeyBrowser(psUrl, userSub) {
@@ -4107,6 +4108,10 @@ ${renderJSON(body)}`;
               "Signature-Key": `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`
             }, null)
           );
+          if (pollStep) {
+            pollStep.dataset.pollKey = "whoami";
+            persistActiveLog();
+          }
         }
         const interactionStep = addLogStep(
           copy("authorize.ps_consent_prompt.label"),
@@ -4279,6 +4284,7 @@ ${renderJSON(body)}`;
     document.getElementById("bootstrap-artifacts")?.classList.remove("hidden");
     setActiveLog("bootstrap-log");
     showLog();
+    currentLog()?.querySelectorAll(":scope > details.log-section").forEach((s) => s.setAttribute("open", ""));
     const log = currentLog();
     if (!log.querySelector(":scope > details.log-section")) {
       addLogSection(copy("sections.bootstrap"));
@@ -4298,7 +4304,8 @@ ${renderJSON(body)}`;
         desc("bootstrap_resumed.ps_consent_prompt") + `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
       );
     }
-    const pending2 = await pollForBootstrapToken(saved.pollUrl, kp, publicJwk, interactionStep);
+    const existingPollStep = log.querySelector('[data-poll-key="bootstrap"]');
+    const pending2 = await pollForBootstrapToken(saved.pollUrl, kp, publicJwk, interactionStep, existingPollStep || void 0);
     if (!pending2) return true;
     addLogStep(
       copy("bootstrap.ps_bootstrap_token_received.label"),
@@ -4363,6 +4370,7 @@ ${renderJSON(body)}`;
     document.querySelectorAll("#resource-section .authz-actions").forEach((el) => el.classList.add("hidden"));
     setActiveLog("resource-log");
     showLog();
+    currentLog()?.querySelectorAll(":scope > details.log-section").forEach((s) => s.setAttribute("open", ""));
     const isNotes = !!saved.notesAuthorize;
     const promptKey = isNotes ? "notes_resumed.ps_consent_prompt" : "whoami_resumed.ps_consent_prompt";
     const log = currentLog();
@@ -4401,7 +4409,8 @@ ${renderJSON(body)}`;
         }
       };
     }
-    startAuthTokenPolling(saved.pollUrl, saved.tokenEndpoint, interactionStep, null, options);
+    const existingPollStep = log.querySelector(`[data-poll-key="${consentKey}"]`);
+    startAuthTokenPolling(saved.pollUrl, saved.tokenEndpoint, interactionStep, existingPollStep || null, options);
     return true;
   }
   window.resumePendingAuthorize = resumePendingAuthorize;
@@ -4846,6 +4855,10 @@ ${renderJSON(body)}`;
               "Signature-Key": `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`
             }, null)
           );
+          if (pollStep) {
+            pollStep.dataset.pollKey = "notes";
+            persistActiveLog();
+          }
         }
         const interactionStep = addLogStep(
           copy("notes.ps_consent_prompt.label"),

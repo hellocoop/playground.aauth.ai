@@ -167,6 +167,12 @@ function restorePersistedLogs() {
     if (!log) continue
     log.innerHTML = saved
     log.classList.remove('hidden')
+    // Collapse each top-level section on reload so the restored trail
+    // doesn't flood the viewport. User can expand on demand. Mid-flow
+    // resume paths will toggle them back open as they append.
+    for (const section of log.querySelectorAll(':scope > details.log-section')) {
+      section.removeAttribute('open')
+    }
     // Reveal the green-line wrapper that contains bootstrap-log so the
     // restored trace is actually visible; app.js setAuthenticated may
     // not have fired yet (e.g., pending-bootstrap with no agent_token).
@@ -301,16 +307,11 @@ function anotherRequestButton() {
   // on screen at the same time. Another Request is the only path back
   // to a fresh form while the flow's terminal state is visible.
   //
-  // Terminal UI also means "flow is done" — schedule a persisted-log
-  // clear via microtask so the next page reload starts from the
-  // default state. The microtask runs after the enclosing addLogStep's
-  // synchronous persistActiveLog, overwriting that snapshot with an
-  // empty entry. We capture the active log id NOW because by the time
-  // the microtask fires the active log may have been reset.
-  const activeId = currentLog()?.id
-  if (activeId && PERSIST_LOG_IDS.includes(activeId)) {
-    queueMicrotask(() => clearPersistedLog(activeId))
-  }
+  // Persisted-log lifecycle: we deliberately DON'T clear on terminal.
+  // The trail stays in localStorage so a later page reload still
+  // shows the completed flow (collapsed). Clears happen only on Reset
+  // or when a new flow starts (clearLog in startBootstrap /
+  // startWhoami / startNotes).
   return `<div class="log-actions"><button type="button" class="btn-outline js-scroll-authz">${escapeHtml(copy('ui.another_request_button'))}</button></div>`
 }
 
@@ -525,6 +526,14 @@ async function runBootstrap(psUrl, hints) {
       'Signature-Key': `sig=hwk;kty="${publicJwk.kty}";crv="${publicJwk.crv}";x="${publicJwk.x}"`,
     }, null)
   )
+  // Tag so resumePendingInteraction can find this pending step on
+  // return from the PS and hand it to pollForBootstrapToken — otherwise
+  // the pre-redirect entry sits stuck "pending" while the resume-side
+  // creates a fresh poll step that actually resolves.
+  if (pollStep) {
+    pollStep.dataset.pollKey = 'bootstrap'
+    persistActiveLog()
+  }
   // Log the consent step, then auto-redirect to the PS — we skip
   // rendering the intermediate "Continue with Hellō" card because the
   // initial Bootstrap with Hellō click already expressed user intent.
@@ -815,9 +824,10 @@ async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, 
     user_sub: bootstrapPayload.sub || '',
   })
 
+  // applyBootstrapResult moves #agent-token-details + #decoded-payload-details
+  // into the current log section; don't also inline formatToken under
+  // the verify step — that would render the token + decoded block twice.
   window.aauthApplyBootstrapResult(result)
-
-  appendStepBody(verifyStep, formatToken('Agent Token (aa-agent+jwt)', result.agent_token, decodeJWTPayloadBrowser(result.agent_token)))
 
   // Announce the new aauth:local@domain identity back to the PS so it can
   // bind it to the user. Empty POST signed sig=jwt with the agent_token,
@@ -855,13 +865,6 @@ async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, 
       appendStepBody(announceStep, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`)
     }
   }
-
-  // Bootstrap ceremony is fully terminal here (success or failure
-  // returned earlier). Clear the persisted log — the success path
-  // doesn't render anotherRequestButton, so its auto-clear microtask
-  // wouldn't fire. A microtask runs after the last in-flight persist
-  // from the announce block above.
-  queueMicrotask(() => clearPersistedLog('bootstrap-log'))
 
   return { result }
 }
@@ -1294,6 +1297,10 @@ async function runWhoamiCall(whoamiUrl, bindingPs, hints) {
             'Signature-Key': `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`,
           }, null)
         )
+        if (pollStep) {
+          pollStep.dataset.pollKey = 'whoami'
+          persistActiveLog()
+        }
       }
       const interactionStep = addLogStep(copy('authorize.ps_consent_prompt.label'), 'pending',
         desc('authorize.ps_consent_prompt') +
@@ -1518,6 +1525,11 @@ async function resumePendingInteraction() {
   document.getElementById('bootstrap-artifacts')?.classList.remove('hidden')
   setActiveLog('bootstrap-log')
   showLog()
+  // Restore collapses every log-section on reload. Since a resume is
+  // actively progressing the ceremony, pop them back open so new
+  // steps land visibly without the user having to click.
+  currentLog()?.querySelectorAll(':scope > details.log-section')
+    .forEach((s) => s.setAttribute('open', ''))
   // Don't open a new "(resumed)" section — the persisted log already
   // carries the in-progress Bootstrap section and we want the polled
   // steps to flow into it. Fallback: if the persisted log is empty
@@ -1549,7 +1561,10 @@ async function resumePendingInteraction() {
       `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
     )
   }
-  const pending = await pollForBootstrapToken(saved.pollUrl, kp, publicJwk, interactionStep)
+  // Reuse the pre-redirect pollStep so pollForBootstrapToken resolves
+  // that same entry instead of leaving a stuck-pending duplicate.
+  const existingPollStep = log.querySelector('[data-poll-key="bootstrap"]')
+  const pending = await pollForBootstrapToken(saved.pollUrl, kp, publicJwk, interactionStep, existingPollStep || undefined)
   if (!pending) return true
   addLogStep(copy('bootstrap.ps_bootstrap_token_received.label'), 'success',
     desc('bootstrap.ps_bootstrap_token_received') +
@@ -1649,6 +1664,10 @@ async function resumePendingAuthorize() {
     .forEach((el) => el.classList.add('hidden'))
   setActiveLog('resource-log')
   showLog()
+  // Restore collapses every log-section on reload. Since a resume is
+  // actively progressing the ceremony, pop them back open.
+  currentLog()?.querySelectorAll(':scope > details.log-section')
+    .forEach((s) => s.setAttribute('open', ''))
 
   // The flow-specific markers on the saved record (whoamiUrl vs.
   // notesAuthorize) tell us which branch to rehydrate. Default to
@@ -1710,7 +1729,11 @@ async function resumePendingAuthorize() {
     }
   }
 
-  startAuthTokenPolling(saved.pollUrl, saved.tokenEndpoint, interactionStep, null, options)
+  // Reuse pre-redirect pollStep if persisted log carries it — otherwise
+  // startAuthTokenPolling would create a fresh one, leaving the
+  // original stuck pending.
+  const existingPollStep = log.querySelector(`[data-poll-key="${consentKey}"]`)
+  startAuthTokenPolling(saved.pollUrl, saved.tokenEndpoint, interactionStep, existingPollStep || null, options)
   return true
 }
 window.resumePendingAuthorize = resumePendingAuthorize
@@ -2256,6 +2279,10 @@ async function runNotesAuthorize(operations, bindingPs, hints) {
               'Signature-Key': `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`,
             }, null),
         )
+        if (pollStep) {
+          pollStep.dataset.pollKey = 'notes'
+          persistActiveLog()
+        }
       }
       const interactionStep = addLogStep(copy('notes.ps_consent_prompt.label'), 'pending',
         desc('notes.ps_consent_prompt') + renderInteraction(interaction, pollUrl, 'authorize'))
