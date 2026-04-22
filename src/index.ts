@@ -22,6 +22,7 @@ import {
   verifyAndStoreRegistration,
   verifyAssertion,
 } from './webauthn'
+import { generateAgentLocal } from './agent-local'
 
 type HonoEnv = { Bindings: Env }
 
@@ -134,6 +135,10 @@ app.post('/bootstrap/challenge', async (c) => {
   // RFC 9421 signature against it (the PS already bound this key to the
   // user at bootstrap consent), and we verify the bootstrap_token's own
   // JWT signature against the PS JWKS via psJwksVerifier.
+  //
+  // Body is empty: the bootstrap_token rides in Signature-Key, the
+  // ephemeral key is bound by bootstrap_token.cnf.jwk and proven by the
+  // HTTP signature, and the agent_local is minted server-side below.
   const verifyRes = await verifySigJwt(c, {
     verifyInner: psJwksVerifier(),
     // bootstrap_token has no iss constraint at this layer; we check aud
@@ -142,24 +147,7 @@ app.post('/bootstrap/challenge', async (c) => {
   })
   if (verifyRes instanceof Response) return verifyRes
 
-  const bootstrapToken = verifyRes.innerJwt
   const payload = verifyRes.innerPayload as unknown as BootstrapTokenPayload
-
-  let body: { bootstrap_token: string; ephemeral_jwk: JsonWebKey; agent_local?: string }
-  try {
-    body = JSON.parse(verifyRes.rawBody)
-  } catch {
-    return c.json({ error: 'invalid JSON body' }, 400)
-  }
-  if (!body.bootstrap_token || !body.ephemeral_jwk) {
-    return c.json({ error: 'missing bootstrap_token or ephemeral_jwk' }, 400)
-  }
-  // Signature-Key JWT must equal body.bootstrap_token — they're the same
-  // token, but belt-and-suspenders check: don't let a caller sign with one
-  // token and submit a different one in the body.
-  if (body.bootstrap_token !== bootstrapToken) {
-    return c.json({ error: 'bootstrap_token mismatch between Signature-Key and body' }, 401)
-  }
 
   // Claim checks.
   const origin = c.env.ORIGIN
@@ -169,13 +157,6 @@ app.post('/bootstrap/challenge', async (c) => {
   if (!payload.sub) return c.json({ error: 'bootstrap_token missing sub' }, 401)
   if (!payload.cnf?.jwk) return c.json({ error: 'bootstrap_token missing cnf.jwk' }, 401)
   if (!payload.jti) return c.json({ error: 'bootstrap_token missing jti' }, 401)
-
-  // cnf.jwk must match the client-supplied ephemeral key.
-  const cnfThumb = await computeJwkThumbprint(payload.cnf.jwk)
-  const ephThumb = await computeJwkThumbprint(body.ephemeral_jwk)
-  if (cnfThumb !== ephThumb) {
-    return c.json({ error: 'ephemeral_jwk does not match bootstrap_token.cnf.jwk' }, 401)
-  }
 
   // Replay guard (jti seen before).
   const jtiKey = `jti:${payload.jti}`
@@ -189,12 +170,12 @@ app.post('/bootstrap/challenge', async (c) => {
   const existing = await getBinding(c.env, bindingKey)
 
   const host = new URL(origin).hostname
-  // First bootstrap for this (PS, user) picks up the client-supplied
-  // agent_local (the generated three-word handle). Subsequent bootstraps
-  // or refreshes reuse the stored aauth_sub so the identifier is stable
-  // across devices and ephemeral-key rotations for the same binding.
-  const agentLocal = sanitizeAgentLocal(body.agent_local)
-  const aauthSub = existing?.aauth_sub ?? `aauth:${agentLocal}@${host}`
+  // First bootstrap for this (PS, user) mints a fresh agent_local
+  // server-side; subsequent bootstraps or refreshes reuse the stored
+  // aauth_sub so the identifier is stable across devices and
+  // ephemeral-key rotations for the same binding. The local part is
+  // intentionally not derived from any user identifier.
+  const aauthSub = existing?.aauth_sub ?? `aauth:${generateAgentLocal()}@${host}`
 
   const rpID = host
   const rpName = c.env.AGENT_NAME
@@ -217,7 +198,7 @@ app.post('/bootstrap/challenge', async (c) => {
     ps_url: payload.iss,
     user_sub: payload.sub,
     aauth_sub: aauthSub,
-    ephemeral_jwk: body.ephemeral_jwk,
+    ephemeral_jwk: payload.cnf.jwk,
     challenge: options.challenge,
     type,
     created_at: Date.now(),
@@ -452,16 +433,6 @@ app.post('/refresh/verify', async (c) => {
     ephemeralJwk: tx.new_ephemeral_jwk,
   }))
 })
-
-// Constrain the client-supplied agent_local to a conservative shape so
-// it's safe to splice into the aauth identifier without escaping. Matches
-// the three-word-handle format generated in public/app.js.
-function sanitizeAgentLocal(input: string | undefined): string {
-  const fallback = 'agent'
-  if (!input) return fallback
-  const cleaned = input.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 64)
-  return cleaned.length > 0 ? cleaned : fallback
-}
 
 // ── Token minting helper ──
 

@@ -3475,33 +3475,25 @@ ${renderJSON(body)}`;
   async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, ctx = {}) {
     trace("completeAgentServerBootstrap entered");
     clearPendingBootstrap();
-    const agentLocal = window.aauthGetOrGenerateAgentName();
     const challengeEndpoint = `${window.location.origin}/bootstrap/challenge`;
-    const challengeBody = { bootstrap_token: bootstrapToken, ephemeral_jwk: publicJwk, agent_local: agentLocal };
     const challengeReqStep = addLogStep(
       fmt(copy("bootstrap.agent_server_challenge_request.label_template"), { path: new URL(challengeEndpoint).pathname }),
       "pending",
       desc("bootstrap.agent_server_challenge_request") + formatRequest("POST", challengeEndpoint, {
-        "Content-Type": "application/json",
-        "Signature-Input": 'sig=("@method" "@authority" "@path" "content-type" "signature-key");created=...',
+        "Content-Length": "0",
+        "Signature-Input": 'sig=("@method" "@authority" "@path" "signature-key");created=...',
         "Signature": "sig=:...:",
         "Signature-Key": `sig=jwt;jwt="${bootstrapToken.substring(0, 20)}..."`
-      }, {
-        bootstrap_token: bootstrapToken.substring(0, 20) + "...",
-        ephemeral_jwk: publicJwk,
-        agent_local: agentLocal
-      })
+      }, null)
     );
     let challengeData;
     try {
       const res = await (0, import_httpsig.fetch)(challengeEndpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(challengeBody),
         signingKey: publicJwk,
         signingCryptoKey: keyPair.privateKey,
         signatureKey: { type: "jwt", jwt: bootstrapToken },
-        components: ["@method", "@authority", "@path", "content-type", "signature-key"]
+        components: ["@method", "@authority", "@path", "signature-key"]
       });
       challengeData = await res.json();
       if (!res.ok) {

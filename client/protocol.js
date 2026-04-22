@@ -572,28 +572,21 @@ async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, 
   // leave a stale pending entry that would be resumed on next reload.
   clearPendingBootstrap()
 
-  // POST /bootstrap/challenge. Server verifies bootstrap_token, returns
-  // WebAuthn options + a transaction id tied to the already-validated claims.
-  // Pass the generated three-word handle so the server can mint
-  // aauth:{handle}@host on first bootstrap for this (PS, user). Ignored
-  // on subsequent bootstraps — server uses the binding's stored aauth_sub.
-  // Lazy generation: no name exists on a fresh install or post-Reset
-  // until we actually need one here.
-  const agentLocal = window.aauthGetOrGenerateAgentName()
+  // POST /bootstrap/challenge with an empty body. The bootstrap_token
+  // rides in Signature-Key (sig=jwt), the ephemeral key is bound by
+  // bootstrap_token.cnf.jwk and proven by the HTTP signature, and the
+  // agent_local is minted server-side — so there is nothing left for
+  // the body to carry. Server returns WebAuthn options + a transaction
+  // id tied to the already-validated bootstrap claims.
   const challengeEndpoint = `${window.location.origin}/bootstrap/challenge`
-  const challengeBody = { bootstrap_token: bootstrapToken, ephemeral_jwk: publicJwk, agent_local: agentLocal }
   const challengeReqStep = addLogStep(fmt(copy('bootstrap.agent_server_challenge_request.label_template'), { path: new URL(challengeEndpoint).pathname }), 'pending',
     desc('bootstrap.agent_server_challenge_request') +
     formatRequest('POST', challengeEndpoint, {
-      'Content-Type': 'application/json',
-      'Signature-Input': 'sig=("@method" "@authority" "@path" "content-type" "signature-key");created=...',
+      'Content-Length': '0',
+      'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
       'Signature': 'sig=:...:',
       'Signature-Key': `sig=jwt;jwt="${bootstrapToken.substring(0, 20)}..."`,
-    }, {
-      bootstrap_token: bootstrapToken.substring(0, 20) + '...',
-      ephemeral_jwk: publicJwk,
-      agent_local: agentLocal,
-    })
+    }, null)
   )
 
   let challengeData
@@ -604,12 +597,10 @@ async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, 
     // transient agent_token for this one hop.
     const res = await sigFetch(challengeEndpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(challengeBody),
       signingKey: publicJwk,
       signingCryptoKey: keyPair.privateKey,
       signatureKey: { type: 'jwt', jwt: bootstrapToken },
-      components: ['@method', '@authority', '@path', 'content-type', 'signature-key'],
+      components: ['@method', '@authority', '@path', 'signature-key'],
     })
     challengeData = await res.json()
     if (!res.ok) {

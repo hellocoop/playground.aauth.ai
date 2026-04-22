@@ -181,16 +181,17 @@ describe('POST /bootstrap/challenge', () => {
   const PS = 'https://ps.test'
   const TEST_URL = 'http://localhost/bootstrap/challenge'
 
-  // Build a fully-wired valid request: bootstrap_token, matching ephemeral,
-  // and RFC 9421 signature headers. Callers can tweak the result to
-  // exercise individual failure modes.
-  async function validRequest(env: any, opts: {
+  // Build a fully-wired valid request: bootstrap_token in Signature-Key,
+  // empty body, RFC 9421 signature headers. Callers can tweak the result
+  // to exercise individual failure modes. The challenge endpoint takes
+  // an empty body — bootstrap_token rides in Signature-Key, ephemeral
+  // is bound by cnf, and agent_local is minted server-side.
+  async function validRequest(_env: any, opts: {
     sub?: string
     jti?: string
     iat?: number
     exp?: number
     aud?: string
-    agentLocal?: string
   } = {}) {
     const eph = await makeEphemeral()
     const { token, psPublicJwk, psJwksKid } = await mintBootstrapToken({
@@ -204,20 +205,14 @@ describe('POST /bootstrap/challenge', () => {
     })
     stubPsDiscovery(PS, { keys: [{ ...psPublicJwk, kid: psJwksKid }] })
 
-    const body = JSON.stringify({
-      bootstrap_token: token,
-      ephemeral_jwk: eph.publicJwk,
-      agent_local: opts.agentLocal,
-    })
     const headers = await signedHeaders({
       url: TEST_URL,
       method: 'POST',
-      body,
       jwt: token,
       signingPublicJwk: eph.publicJwk,
       signingPrivateJwk: eph.privateJwk,
     })
-    return { eph, token, body, headers }
+    return { eph, token, body: undefined as string | undefined, headers }
   }
 
   // ── Signature-verification matrix ──
@@ -237,11 +232,9 @@ describe('POST /bootstrap/challenge', () => {
   it('(sig) missing Signature-Key → 401', async () => {
     const { env } = await makeEnv()
     const app = await loadApp()
-    const { body } = await validRequest(env)
+    await validRequest(env)
     const res = await app.request('/bootstrap/challenge', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
     }, env)
     expect(res.status).toBe(401)
     expect((await res.json() as any).error).toMatch(/signature verification failed/i)
@@ -281,43 +274,7 @@ describe('POST /bootstrap/challenge', () => {
     vi.unstubAllGlobals()
   })
 
-  it('(sig) signed Content-Type tampered after signing → 401', async () => {
-    // The signature base covers content-type but NOT the body itself
-    // (would need content-digest for that — tracked as a TODO; see
-    // comment on `components` in signedHeaders). This test exercises the
-    // coverage we DO have: if a signed header changes, verification
-    // fails. Catches the "did httpsig actually run?" regression.
-    const { env } = await makeEnv()
-    const app = await loadApp()
-    const { body, headers } = await validRequest(env)
-    const tamperedHeaders = { ...headers, 'content-type': 'text/plain' }
-    const res = await app.request('/bootstrap/challenge', {
-      method: 'POST', headers: tamperedHeaders, body,
-    }, env)
-    expect(res.status).toBe(401)
-    expect((await res.json() as any).error).toMatch(/signature verification failed/i)
-    vi.unstubAllGlobals()
-  })
-
   // ── Claim / token semantics ──
-
-  it('rejects missing fields (body) even with valid signature', async () => {
-    const { env } = await makeEnv()
-    const app = await loadApp()
-    const eph = await makeEphemeral()
-    const { token, psPublicJwk, psJwksKid } = await mintBootstrapToken({
-      iss: PS, aud: ORIGIN, sub: 's', ephemeralJwk: eph.publicJwk,
-    })
-    stubPsDiscovery(PS, { keys: [{ ...psPublicJwk, kid: psJwksKid }] })
-    const body = JSON.stringify({})
-    const headers = await signedHeaders({
-      url: TEST_URL, method: 'POST', body, jwt: token,
-      signingPublicJwk: eph.publicJwk, signingPrivateJwk: eph.privateJwk,
-    })
-    const res = await app.request('/bootstrap/challenge', { method: 'POST', headers, body }, env)
-    expect(res.status).toBe(400)
-    vi.unstubAllGlobals()
-  })
 
   it('rejects tampered bootstrap_token signature', async () => {
     const { env } = await makeEnv()
@@ -329,12 +286,11 @@ describe('POST /bootstrap/challenge', () => {
     stubPsDiscovery(PS, { keys: [{ ...psPublicJwk, kid: psJwksKid }] })
     const parts = token.split('.')
     const tamperedToken = `${parts[0]}.${parts[1]}.AAAAAAAA`
-    const body = JSON.stringify({ bootstrap_token: tamperedToken, ephemeral_jwk: eph.publicJwk })
     const headers = await signedHeaders({
-      url: TEST_URL, method: 'POST', body, jwt: tamperedToken,
+      url: TEST_URL, method: 'POST', jwt: tamperedToken,
       signingPublicJwk: eph.publicJwk, signingPrivateJwk: eph.privateJwk,
     })
-    const res = await app.request('/bootstrap/challenge', { method: 'POST', headers, body }, env)
+    const res = await app.request('/bootstrap/challenge', { method: 'POST', headers }, env)
     expect(res.status).toBe(401)
     vi.unstubAllGlobals()
   })
@@ -357,30 +313,6 @@ describe('POST /bootstrap/challenge', () => {
     const res = await app.request('/bootstrap/challenge', { method: 'POST', headers, body }, env)
     expect(res.status).toBe(401)
     expect((await res.json() as any).error).toMatch(/aud mismatch/)
-    vi.unstubAllGlobals()
-  })
-
-  it('rejects when ephemeral_jwk does not match cnf.jwk', async () => {
-    const { env } = await makeEnv()
-    const app = await loadApp()
-    // Mint bootstrap_token bound to cnfEph, but send otherEph in the body.
-    // httpsig verifies with cnfEph (which is what we sign with), so the HTTP
-    // sig succeeds — but the agent server catches the mismatch between
-    // body.ephemeral_jwk and bootstrap_token.cnf.jwk.
-    const cnfEph = await makeEphemeral()
-    const otherEph = await makeEphemeral()
-    const { token, psPublicJwk, psJwksKid } = await mintBootstrapToken({
-      iss: PS, aud: ORIGIN, sub: 's', ephemeralJwk: cnfEph.publicJwk,
-    })
-    stubPsDiscovery(PS, { keys: [{ ...psPublicJwk, kid: psJwksKid }] })
-    const body = JSON.stringify({ bootstrap_token: token, ephemeral_jwk: otherEph.publicJwk })
-    const headers = await signedHeaders({
-      url: TEST_URL, method: 'POST', body, jwt: token,
-      signingPublicJwk: cnfEph.publicJwk, signingPrivateJwk: cnfEph.privateJwk,
-    })
-    const res = await app.request('/bootstrap/challenge', { method: 'POST', headers, body }, env)
-    expect(res.status).toBe(401)
-    expect((await res.json() as any).error).toMatch(/ephemeral_jwk does not match/)
     vi.unstubAllGlobals()
   })
 
