@@ -375,7 +375,7 @@ function getSelectedIdentityScopes() {
 
 function getHints() {
   const hints = {}
-  const fields = ['login-hint', 'domain-hint', 'provider-hint', 'tenant']
+  const fields = ['provider-hint']
   for (const field of fields) {
     // Per-hint checkbox gates whether the hint is sent. This is explicit on/off
     // rather than implicit from value-presence — lets the user keep a value

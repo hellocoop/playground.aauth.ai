@@ -3295,7 +3295,7 @@ ${renderJSON(body)}`;
   }
   function getHints() {
     const hints = {};
-    const fields = ["login-hint", "domain-hint", "provider-hint", "tenant"];
+    const fields = ["provider-hint"];
     for (const field of fields) {
       const enabled = document.querySelector(`.hint-enable[data-hint-for="${field}"]`)?.checked;
       if (!enabled) continue;
