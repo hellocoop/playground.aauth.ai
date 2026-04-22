@@ -473,11 +473,7 @@ window.updateWhoamiUrlPreview = updateWhoamiUrlPreview
 // user-customizable settings (PS selection, scopes, hints) as JSON.
 
 const SETTINGS_KEY = 'aauth-playground-settings'
-// Only provider_hint is wired through the current PS/agent server flow —
-// the others (login_hint, domain_hint, tenant) aren't plumbed yet, so
-// keeping them in the UI created inputs the user could fill that would
-// silently no-op. Shrink to the one that actually travels.
-const HINT_FIELDS = ['provider-hint']
+const HINT_FIELDS = ['login-hint', 'domain-hint', 'provider-hint', 'tenant']
 const DEFAULT_PS = 'https://person.hello-beta.net'
 
 function loadSettings() {
