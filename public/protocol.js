@@ -3201,7 +3201,7 @@
     log.classList.add("hidden");
     if (PERSIST_LOG_IDS.includes(log.id)) clearPersistedLog(log.id);
   }
-  var PERSIST_LOG_IDS = ["bootstrap-log", "resource-log"];
+  var PERSIST_LOG_IDS = ["bootstrap-log", "whoami-log", "notes-log"];
   var persistKey = (id) => `aauth-log-${id}`;
   function persistActiveLog() {
     const log = currentLog();
@@ -3934,7 +3934,7 @@ ${renderJSON(body)}`;
       alert("No agent binding found. Bootstrap first.");
       return;
     }
-    setActiveLog("resource-log");
+    setActiveLog("whoami-log");
     clearLog();
     showLog();
     document.querySelector("#resource-section .authz-actions")?.classList.add("hidden");
@@ -4368,7 +4368,7 @@ ${renderJSON(body)}`;
     if (_resumeAuthorizePolling) return false;
     _resumeAuthorizePolling = true;
     document.querySelectorAll("#resource-section .authz-actions").forEach((el) => el.classList.add("hidden"));
-    setActiveLog("resource-log");
+    setActiveLog(saved.notesAuthorize ? "notes-log" : "whoami-log");
     showLog();
     currentLog()?.querySelectorAll(":scope > details.log-section").forEach((s) => s.setAttribute("open", ""));
     const isNotes = !!saved.notesAuthorize;
@@ -4672,7 +4672,7 @@ ${renderJSON(body)}`;
       alert("No agent binding found. Bootstrap first.");
       return;
     }
-    setActiveLog("resource-log");
+    setActiveLog("notes-log");
     clearLog();
     showLog();
     document.querySelectorAll("#resource-section .authz-actions").forEach((el) => el.classList.add("hidden"));
@@ -5089,7 +5089,7 @@ ${renderJSON(body)}`;
     const hasBody = body !== void 0 && body !== null;
     const components = hasBody ? ["@method", "@authority", "@path", "content-type", "signature-key"] : ["@method", "@authority", "@path", "signature-key"];
     const copyKey = method === "GET" && path === "/notes" ? "notes_app.list_request" : method === "POST" ? "notes_app.create_request" : method === "PUT" ? "notes_app.update_request" : method === "DELETE" ? "notes_app.delete_request" : "notes_app.get_request";
-    setActiveLog("resource-log");
+    setActiveLog("notes-log");
     showLog();
     const step = addLogStep(
       fmt(copy(`${copyKey}.label_template`), { path }),
@@ -5149,7 +5149,8 @@ ${renderJSON(body)}`;
     if (!btn) return;
     const section = document.getElementById("resource-section");
     if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
-    setActiveLog("resource-log");
+    const enclosingLog = btn.closest(".protocol-log");
+    if (enclosingLog?.id) setActiveLog(enclosingLog.id);
     setTimeout(clearLog, 300);
     document.querySelectorAll("#resource-section .authz-actions").forEach((el) => el.classList.remove("hidden"));
   });

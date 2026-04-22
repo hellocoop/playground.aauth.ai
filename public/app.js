@@ -748,17 +748,20 @@ document.getElementById('reset-btn')?.addEventListener('click', () => {
   localStorage.removeItem('aauth-pending-authorize')
   localStorage.removeItem('aauth-pending-whoami')
   localStorage.removeItem('aauth-notes-auth-token')
-  window.aauthClearPersistedLog?.('resource-log')
+  // Resource Request fieldset-level reset wipes both tabs' logs.
+  window.aauthClearPersistedLog?.('whoami-log')
+  window.aauthClearPersistedLog?.('notes-log')
 
   location.reload()
 })
 
-// Notes fieldset Reset — scoped to just the notes auth_token. Leaves
-// the bootstrap binding and any other resource state alone, so the
-// user can re-run the R3 flow with a different set of operations.
+// Notes fieldset Reset — scoped to just the notes auth_token and the
+// notes log. Leaves bootstrap binding, whoami log, and other resource
+// state alone, so the user can re-run the R3 flow with a different
+// set of operations.
 document.getElementById('notes-reset-btn')?.addEventListener('click', () => {
   localStorage.removeItem('aauth-notes-auth-token')
-  window.aauthClearPersistedLog?.('resource-log')
+  window.aauthClearPersistedLog?.('notes-log')
   location.reload()
 })
 

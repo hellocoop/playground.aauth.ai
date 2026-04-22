@@ -246,6 +246,8 @@
         <div class="authz-actions">
           <button id="whoami-btn" type="button" class="hello-btn hello-btn-black-on-dark">ō&nbsp;&nbsp;&nbsp;Whoami with Hellō</button>
         </div>
+
+        <div class="protocol-log hidden" id="whoami-log"></div>
       </div>
 
       <!--
@@ -287,9 +289,9 @@
         <div class="authz-actions">
           <button id="notes-btn" type="button" class="hello-btn hello-btn-black-on-dark">ō&nbsp;&nbsp;&nbsp;Notes with Hellō</button>
         </div>
-      </div>
 
-      <div class="protocol-log hidden" id="resource-log"></div>
+        <div class="protocol-log hidden" id="notes-log"></div>
+      </div>
     </fieldset>
   </div>
 
@@ -310,8 +312,8 @@
   </div>
 
   <!-- Legacy shared log container kept for any call sites not yet
-       retargeted. New code should target #bootstrap-log or
-       #resource-log via setActiveLog(). -->
+       retargeted. New code should target #bootstrap-log, #whoami-log,
+       or #notes-log via setActiveLog(). -->
   <div class="section hidden" id="log-section">
     <fieldset class="section-box">
       <legend>Protocol Log</legend>

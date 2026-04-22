@@ -131,7 +131,7 @@ function clearLog() {
 
 // ── Log persistence (survives same-tab PS redirect) ──
 //
-// Save bootstrap-log / resource-log HTML to localStorage after every
+// Save bootstrap-log / whoami-log / notes-log HTML to localStorage after every
 // log mutation. On page load (app.js init), restore into the
 // containers BEFORE resumePendingInteraction / resumePendingAuthorize
 // fire — so the resumed flow appends into the same <details
@@ -142,7 +142,7 @@ function clearLog() {
 // reload shows the default Agent Identity-only state rather than a
 // stale "last ceremony was X" snapshot.
 
-const PERSIST_LOG_IDS = ['bootstrap-log', 'resource-log']
+const PERSIST_LOG_IDS = ['bootstrap-log', 'whoami-log', 'notes-log']
 const persistKey = (id) => `aauth-log-${id}`
 
 function persistActiveLog() {
@@ -176,6 +176,8 @@ function restorePersistedLogs() {
     // Reveal the green-line wrapper that contains bootstrap-log so the
     // restored trace is actually visible; app.js setAuthenticated may
     // not have fired yet (e.g., pending-bootstrap with no agent_token).
+    // Resource logs live inside their tab panels — their parent section
+    // is revealed once the user bootstraps, independently of this.
     if (id === 'bootstrap-log') {
       document.getElementById('bootstrap-artifacts')?.classList.remove('hidden')
     }
@@ -1104,14 +1106,14 @@ async function startWhoami() {
     return
   }
 
-  setActiveLog('resource-log')
+  setActiveLog('whoami-log')
   clearLog()
   showLog()
 
   document.querySelector('#resource-section .authz-actions')?.classList.add('hidden')
 
   // Refresh agent_token if expired — whoami needs a live one to sign the
-  // initial GET. Refresh steps render in this same resource-log so the
+  // initial GET. Refresh steps render in this same whoami-log so the
   // user sees the full trail in one place.
   let agentTokenValid = false
   const savedAgentToken = localStorage.getItem('aauth-agent-token')
@@ -1662,7 +1664,10 @@ async function resumePendingAuthorize() {
   // Another Request button that renders when the poll terminates.
   document.querySelectorAll('#resource-section .authz-actions')
     .forEach((el) => el.classList.add('hidden'))
-  setActiveLog('resource-log')
+  // The flow-specific markers on the saved record (whoamiUrl vs.
+  // notesAuthorize) also drive which log container the resume steps
+  // append into, since whoami and notes have separate logs now.
+  setActiveLog(saved.notesAuthorize ? 'notes-log' : 'whoami-log')
   showLog()
   // Restore collapses every log-section on reload. Since a resume is
   // actively progressing the ceremony, pop them back open.
@@ -2075,7 +2080,7 @@ async function startNotes() {
     return
   }
 
-  setActiveLog('resource-log')
+  setActiveLog('notes-log')
   clearLog()
   showLog()
 
@@ -2544,7 +2549,7 @@ async function callNotesAPI(method, path, body) {
     : method === 'DELETE' ? 'notes_app.delete_request'
     : 'notes_app.get_request'
 
-  setActiveLog('resource-log')
+  setActiveLog('notes-log')
   showLog()
   const step = addLogStep(
     fmt(copy(`${copyKey}.label_template`), { path }),
@@ -2623,7 +2628,11 @@ document.addEventListener('click', (e) => {
   // clearing mid-scroll feels jerky. Clear log after scroll settles.
   const section = document.getElementById('resource-section')
   if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  setActiveLog('resource-log')
+  // Find the log container this button is inside (whoami-log or
+  // notes-log) and target it for the clear — whichever tab the user
+  // just finished in is the one that should reset.
+  const enclosingLog = btn.closest('.protocol-log')
+  if (enclosingLog?.id) setActiveLog(enclosingLog.id)
   setTimeout(clearLog, 300)
   // Re-show every resource tab's Call button — a tab switch after the
   // flow terminated could leave the other panel's button hidden if we
