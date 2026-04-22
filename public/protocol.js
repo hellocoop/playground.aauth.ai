@@ -3942,6 +3942,13 @@ ${renderJSON(body)}`;
           desc("authorize.ps_consent_prompt") + renderInteraction(interaction, pollUrl, "authorize")
         );
         if (pollUrl) {
+          const absolutePollUrl = new URL(pollUrl, tokenEndpoint).href;
+          savePendingAuthorize({
+            pollUrl: absolutePollUrl,
+            tokenEndpoint,
+            psUrl: bindingPs,
+            whoamiUrl
+          });
           startAuthTokenPolling(pollUrl, tokenEndpoint, interactionStep, pollStep, {
             onAuthToken: async (tokenFromPoll) => {
               await retryWhoami(whoamiUrl, whoamiPathDisplay, tokenFromPoll, keyPair, signingJwk);
@@ -4113,6 +4120,12 @@ ${renderJSON(body)}`;
   }
   window.resumePendingInteraction = resumePendingInteraction;
   var PENDING_AUTHZ_KEY = "aauth-pending-authorize";
+  function savePendingAuthorize(state) {
+    try {
+      localStorage.setItem(PENDING_AUTHZ_KEY, JSON.stringify({ ...state, startedAt: Date.now() }));
+    } catch {
+    }
+  }
   function clearPendingAuthorize() {
     try {
       localStorage.removeItem(PENDING_AUTHZ_KEY);
@@ -4148,7 +4161,18 @@ ${renderJSON(body)}`;
       "pending",
       desc("authorize_resumed.ps_consent_prompt") + `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
     );
-    startAuthTokenPolling(saved.pollUrl, saved.tokenEndpoint, interactionStep);
+    let options = {};
+    if (saved.whoamiUrl) {
+      const urlObj = new URL(saved.whoamiUrl);
+      const whoamiPathDisplay = urlObj.pathname + urlObj.search;
+      const signingJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+      options = {
+        onAuthToken: async (tokenFromPoll) => {
+          await retryWhoami(saved.whoamiUrl, whoamiPathDisplay, tokenFromPoll, keyPair, signingJwk);
+        }
+      };
+    }
+    startAuthTokenPolling(saved.pollUrl, saved.tokenEndpoint, interactionStep, null, options);
     return true;
   }
   window.resumePendingAuthorize = resumePendingAuthorize;

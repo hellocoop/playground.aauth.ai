@@ -1137,11 +1137,18 @@ async function runWhoamiCall(whoamiUrl, bindingPs, hints) {
       )
 
       if (pollUrl) {
-        // Hand off polling, then retry whoami with the minted auth_token.
-        // NOTE: if the user same-tab-redirects to PS and returns, the
-        // existing resumePendingAuthorize path won't know to retry whoami —
-        // it'll render the generic "Authorization Granted" step. Parked
-        // fix: savePendingWhoami + resumePendingWhoami.
+        // Persist enough state to resume the flow after a same-tab
+        // redirect to the Person Server. `whoamiUrl` in the saved record
+        // tells resumePendingAuthorize to splice retryWhoami back onto
+        // the polling loop when auth_token arrives (vs. the generic
+        // "Authorization Granted" terminal step).
+        const absolutePollUrl = new URL(pollUrl, tokenEndpoint).href
+        savePendingAuthorize({
+          pollUrl: absolutePollUrl,
+          tokenEndpoint,
+          psUrl: bindingPs,
+          whoamiUrl,
+        })
         startAuthTokenPolling(pollUrl, tokenEndpoint, interactionStep, pollStep, {
           onAuthToken: async (tokenFromPoll) => {
             await retryWhoami(whoamiUrl, whoamiPathDisplay, tokenFromPoll, keyPair, signingJwk)
@@ -1399,9 +1406,7 @@ async function resumePendingAuthorize() {
   _resumeAuthorizePolling = true
 
   // Resumed authorize — pick up the log inside the Resource Request
-  // fieldset where the original Call click logged. (Whoami flow
-  // doesn't currently savePendingAuthorize, so this path only fires
-  // for legacy pending states written before the whoami migration.)
+  // fieldset where the original Call click logged.
   setActiveLog('resource-log')
   showLog()
   addLogSection(copy('sections.authorize_resumed'))
@@ -1409,7 +1414,26 @@ async function resumePendingAuthorize() {
     desc('authorize_resumed.ps_consent_prompt') +
     `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
   )
-  startAuthTokenPolling(saved.pollUrl, saved.tokenEndpoint, interactionStep)
+
+  // If the pending state was written by the whoami flow, the saved
+  // record carries whoamiUrl — on auth_token arrival, retry the
+  // original GET whoami/?scope=... instead of rendering the generic
+  // "Authorization Granted" step. Signing key is still in IndexedDB
+  // (restored by app.js before this fires), so we can re-derive
+  // signingJwk from the current keypair.
+  let options = {}
+  if (saved.whoamiUrl) {
+    const urlObj = new URL(saved.whoamiUrl)
+    const whoamiPathDisplay = urlObj.pathname + urlObj.search
+    const signingJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
+    options = {
+      onAuthToken: async (tokenFromPoll) => {
+        await retryWhoami(saved.whoamiUrl, whoamiPathDisplay, tokenFromPoll, keyPair, signingJwk)
+      },
+    }
+  }
+
+  startAuthTokenPolling(saved.pollUrl, saved.tokenEndpoint, interactionStep, null, options)
   return true
 }
 window.resumePendingAuthorize = resumePendingAuthorize
