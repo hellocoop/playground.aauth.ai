@@ -1192,49 +1192,49 @@ function renderInteraction(interaction, pollUrl, kind = 'bootstrap') {
   const sameDeviceUrl = `${interaction.url}?code=${encodeURIComponent(interaction.code)}&callback=${encodeURIComponent(callbackUrl)}`
   const qrUrl = `${interaction.url}?code=${encodeURIComponent(interaction.code)}`
   const qrId = `qr-${Math.random().toString(36).slice(2, 9)}`
-  const urlId = nextCopyId()
-  // Layout:
-  //   heading → what the user is doing
-  //   Hellō button → same-device path (primary)
-  //   "OR on another device" divider
-  //   "Scan to Continue with Hellō" caption — makes QR = also continuing with
-  //   Hellō (just on a phone)
-  //   QR code
-  //   Copy-link row — fallback if the user can't scan but wants to open the
-  //   same link elsewhere. Uses the no-callback URL since the receiving
-  //   device can't redirect back to this browser.
+
+  // Bootstrap is a one-click ceremony — just Continue with Hellō, no QR.
+  // QR-scan belongs on resource-token flows (where a different user might
+  // want to pick up the auth on their phone), not on the initial
+  // agent↔user binding.
+  const showQr = kind !== 'bootstrap'
+
   const html = `
     <div class="interaction-box">
       <p class="interaction-heading">${escapeHtml(heading)}</p>
       <div class="interaction-actions">
         <a class="hello-btn hello-btn-black-on-dark" href="${escapeHtml(sameDeviceUrl)}">ō&nbsp;&nbsp;&nbsp;Continue with Hellō</a>
       </div>
-      <div class="interaction-or"><span>${escapeHtml(copy('ui.approve_at_ps.or_another_device'))}</span></div>
-      <div class="qr-code" id="${qrId}"></div>
-      <div class="interaction-url-row">
-        <button class="copy-btn copy-link-text" type="button" data-copy="${escapeHtml(qrUrl)}">
-          <span class="copy-link-text__default">Copy link</span>
-          <span class="copy-link-text__copied">Copied!</span>
-        </button>
-      </div>
+      ${showQr ? `
+        <div class="interaction-or"><span>${escapeHtml(copy('ui.approve_at_ps.or_another_device'))}</span></div>
+        <div class="qr-code" id="${qrId}"></div>
+        <div class="interaction-url-row">
+          <button class="copy-btn copy-link-text" type="button" data-copy="${escapeHtml(qrUrl)}">
+            <span class="copy-link-text__default">Copy link</span>
+            <span class="copy-link-text__copied">Copied!</span>
+          </button>
+        </div>
+      ` : ''}
       <div class="interaction-approved" aria-hidden="true">
         <svg class="interaction-check" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
       </div>
     </div>
   `
 
-  setTimeout(() => {
-    const qrContainer = document.getElementById(qrId)
-    if (!qrContainer) return
-    try {
-      const qr = qrcode(0, 'M')
-      qr.addData(qrUrl)
-      qr.make()
-      qrContainer.innerHTML = qr.createSvgTag({ scalable: true, margin: 0 })
-    } catch (err) {
-      qrContainer.textContent = `(QR generation failed: ${err.message})`
-    }
-  }, 0)
+  if (showQr) {
+    setTimeout(() => {
+      const qrContainer = document.getElementById(qrId)
+      if (!qrContainer) return
+      try {
+        const qr = qrcode(0, 'M')
+        qr.addData(qrUrl)
+        qr.make()
+        qrContainer.innerHTML = qr.createSvgTag({ scalable: true, margin: 0 })
+      } catch (err) {
+        qrContainer.textContent = `(QR generation failed: ${err.message})`
+      }
+    }, 0)
+  }
 
   return html
 }
