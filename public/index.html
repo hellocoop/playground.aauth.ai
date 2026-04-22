@@ -206,7 +206,7 @@
 
       <div class="tab-row" role="tablist">
         <button class="tab tab-active" type="button" role="tab" aria-selected="true" data-tab="whoami">whoami</button>
-        <button class="tab" type="button" role="tab" aria-selected="false" data-tab="r3">r3</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" data-tab="notes">notes</button>
       </div>
 
       <div class="tab-panel" data-panel="whoami">
@@ -245,41 +245,62 @@
       </div>
 
       <!--
-        R3 tab stub — structural duplicate of whoami so the tab row shows
-        both resources. Wiring to r3.aauth.dev is a separate task; the
-        colleague picking this up gets a familiar scaffold to populate.
+        Notes tab — R3 (Rich Resource Requests) demo against notes.aauth.dev.
+        On first activation we fetch the resource's aauth-resource.json and
+        its advertised openapi.json, then render a checkbox per operationId
+        so the user picks exactly which operations to request. The body
+        preview below mirrors the JSON we'll POST to /authorize.
       -->
-      <div class="tab-panel" data-panel="r3" hidden>
+      <div class="tab-panel" data-panel="notes" hidden>
         <p class="tab-description">
           Call
-          <a href="https://r3.aauth.dev/.well-known/aauth-resource.json" target="_blank" rel="noopener">r3.aauth.dev</a>
-          and get back the identity claims carried in your auth token.
+          <a href="https://notes.aauth.dev/.well-known/aauth-resource.json" target="_blank" rel="noopener">notes.aauth.dev</a>
+          and request per-operation access to a simple notes API using R3
+          (Rich Resource Requests) with the OpenAPI vocabulary.
         </p>
 
         <details class="section-group" open>
           <summary class="section-heading">
-            <span>Identity scopes</span>
+            <span>Operations</span>
             <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
           </summary>
-          <div class="scope-grid" id="r3-scope-grid"></div>
+          <div class="scope-grid" id="notes-ops-grid">
+            <p class="scope-caption" id="notes-ops-placeholder">Activate this tab to load the API's operations…</p>
+          </div>
         </details>
 
         <div class="section-group">
           <div class="section-heading section-heading-static">
-            <span>Request URL</span>
+            <span>Request Body</span>
           </div>
           <div class="readonly-field">
-            <span class="readonly-field-text mono" id="r3-url-preview"></span>
-            <button class="copy-btn" type="button" data-copy-target="#r3-url-preview" aria-label="Copy"></button>
+            <pre class="readonly-field-text mono json-preview" id="notes-request-preview"></pre>
+            <button class="copy-btn" type="button" data-copy-target="#notes-request-preview" aria-label="Copy"></button>
           </div>
         </div>
 
         <div class="authz-actions">
-          <button id="r3-btn" type="button" class="hello-btn hello-btn-black-on-dark">ō&nbsp;&nbsp;&nbsp;R3 with Hellō</button>
+          <button id="notes-btn" type="button" class="hello-btn hello-btn-black-on-dark">ō&nbsp;&nbsp;&nbsp;Notes with Hellō</button>
         </div>
       </div>
 
       <div class="protocol-log hidden" id="resource-log"></div>
+    </fieldset>
+  </div>
+
+  <!--
+    Notes app — revealed after a successful /authorize + PS token exchange
+    against notes.aauth.dev. What's actually visible here comes from the
+    auth_token.r3_granted.operations array, not from what the user
+    checked; the PS may grant a subset. Inner structure (list, create
+    form, edit, delete) is rendered by client/protocol.js when the token
+    arrives.
+  -->
+  <div class="section hidden" id="notes-section">
+    <fieldset class="section-box">
+      <legend>Notes</legend>
+      <button id="notes-reset-btn" type="button" class="btn-outline section-reset" title="Clear notes auth token">Reset</button>
+      <div id="notes-app"></div>
     </fieldset>
   </div>
 

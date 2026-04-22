@@ -1585,34 +1585,48 @@ async function resumePendingAuthorize() {
   _resumeAuthorizePolling = true
 
   // Resumed authorize — pick up the log inside the Resource Request
-  // fieldset where the original Call click logged. Hide the Call button
-  // too: the flow is in progress (same as directly after the click),
-  // and we don't want it competing with the Another Request button that
-  // renders when the poll terminates.
-  document.querySelector('#resource-section .authz-actions')?.classList.add('hidden')
+  // fieldset where the original Call click logged. Hide every Call
+  // button across panels: the flow is in progress (same as directly
+  // after the click), and we don't want any of them competing with the
+  // Another Request button that renders when the poll terminates.
+  document.querySelectorAll('#resource-section .authz-actions')
+    .forEach((el) => el.classList.add('hidden'))
   setActiveLog('resource-log')
   showLog()
-  // Persisted log restored at init should already carry the in-progress
-  // Whoami section; append into it rather than branching a new
-  // "(resumed)" section. Fallback opens a Whoami section if nothing's
+
+  // The flow-specific markers on the saved record (whoamiUrl vs.
+  // notesAuthorize) tell us which branch to rehydrate. Default to
+  // whoami for records saved before the notes flow existed.
+  const isNotes = !!saved.notesAuthorize
+  const promptKey = isNotes ? 'notes_resumed.ps_consent_prompt' : 'whoami_resumed.ps_consent_prompt'
+  // Persisted log (restored at init) should already carry the in-progress
+  // Notes/Whoami section; append into it rather than branching a new
+  // "(resumed)" section. Fallback opens a fresh section if nothing's
   // been restored (persisted log was cleared mid-flow).
   const log = currentLog()
   if (!log.querySelector(':scope > details.log-section')) {
-    addLogSection(copy('sections.whoami'))
+    addLogSection(copy(isNotes ? 'sections.notes' : 'sections.whoami'))
   }
-  const interactionStep = addLogStep(copy('whoami_resumed.ps_consent_prompt.label'), 'pending',
-    desc('whoami_resumed.ps_consent_prompt') +
+  const interactionStep = addLogStep(copy(`${promptKey}.label`), 'pending',
+    desc(promptKey) +
     `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
   )
 
-  // If the pending state was written by the whoami flow, the saved
-  // record carries whoamiUrl — on auth_token arrival, retry the
-  // original GET whoami/?scope=... instead of rendering the generic
-  // "Authorization Granted" step. Signing key is still in IndexedDB
-  // (restored by app.js before this fires), so we can re-derive
-  // signingJwk from the current keypair.
+  // On auth_token arrival, route to the flow-specific handler:
+  //   notes  → finalizeNotesAuthToken persists the token and mounts the
+  //            Notes app.
+  //   whoami → retryWhoami replays the GET whoami/?scope=… signed with
+  //            the fresh auth_token and renders identity claims.
+  //   (neither marker) → startAuthTokenPolling falls through to the
+  //            generic "Authorization Granted" step.
   let options = {}
-  if (saved.whoamiUrl) {
+  if (isNotes) {
+    options = {
+      onAuthToken: async (tokenFromPoll) => {
+        await finalizeNotesAuthToken(tokenFromPoll)
+      },
+    }
+  } else if (saved.whoamiUrl) {
     const urlObj = new URL(saved.whoamiUrl)
     const whoamiPathDisplay = urlObj.pathname + urlObj.search
     const signingJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
@@ -1783,10 +1797,713 @@ function decodeJWTPayloadBrowser(jwt) {
   }
 }
 
+// ── Notes (R3) demo ──
+//
+// Multi-step flow against notes.aauth.dev, which exposes:
+//   • /.well-known/aauth-resource.json — advertises authorization_endpoint
+//     and r3_vocabularies[urn:aauth:vocabulary:openapi] pointing at an
+//     OpenAPI spec enumerating the API's operations.
+//   • /authorize — POST signed with agent_token + r3_operations body
+//     naming the operationIds we want; returns a resource_token.
+//   • /notes* — CRUD API gated by auth_token.r3_granted.
+//
+// Flow: tab activation fetches the metadata + OpenAPI (once per page)
+// and renders a checkbox per operationId. "Notes with Hellō" signs the
+// /authorize POST, exchanges the resource_token at the user's PS, and
+// either gets a 200 auth_token (cached consent) or 202 + interaction
+// that drives the existing auth-token polling loop. Once an auth_token
+// lands we persist it, reveal the Notes fieldset, and render a
+// list/create/view/edit/delete UI gated on r3_granted.operations.
+
+const NOTES_AUTH_TOKEN_KEY = 'aauth-notes-auth-token'
+let _notesHydrated = false
+let _notesMetadata = null
+let _notesOperations = [] // [{ operationId, summary, method, path }]
+let _notesCache = []      // last GET /notes response, used for edit/delete renders
+
+// Discover notes resource metadata + OpenAPI. When `logIt` is true the
+// fetch sequence renders into the protocol log (used by runNotesAuthorize
+// so every Notes-with-Hellō click shows the full trail). When false the
+// fetches are silent (used by tab activation — the user hasn't asked to
+// run the protocol yet, so the log would be noise that clearLog() will
+// just wipe on the first click).
+async function performNotesDiscovery(logIt) {
+  const notesOrigin = window.NOTES_ORIGIN || 'https://notes.aauth.dev'
+  const metadataUrl = `${notesOrigin}/.well-known/aauth-resource.json`
+  const metadataPath = '/.well-known/aauth-resource.json'
+
+  const metaStep = logIt
+    ? addLogStep(
+        fmt(copy('notes.resource_metadata_request.label_template'), { path: metadataPath }),
+        'pending',
+        desc('notes.resource_metadata_request') + formatRequest('GET', metadataUrl, null, null),
+      )
+    : null
+  let metadata
+  try {
+    const res = await fetch(metadataUrl)
+    metadata = await res.json().catch(() => null)
+    if (!res.ok || !metadata) {
+      if (metaStep) {
+        resolveStep(metaStep, 'error', fmt(copy('notes.resource_metadata_request.label_resolved_template'), { path: metadataPath, status: res.status }))
+        appendStepBody(metaStep, formatResponse(res.status, null, metadata))
+      }
+      return null
+    }
+    if (metaStep) {
+      resolveStep(metaStep, 'success', fmt(copy('notes.resource_metadata_request.label_resolved_template'), { path: metadataPath, status: 200 }))
+      appendStepBody(metaStep, formatResponse(200, null, metadata))
+    }
+  } catch (err) {
+    if (metaStep) {
+      resolveStep(metaStep, 'error', fmt(copy('notes.resource_metadata_request.label_error_network_template'), { path: metadataPath }))
+      appendStepBody(metaStep, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`)
+    }
+    return null
+  }
+
+  const openapiUrl = metadata.r3_vocabularies?.[window.NOTES_VOCABULARY] || `${notesOrigin}/openapi.json`
+  const openapiPath = new URL(openapiUrl).pathname
+  const oaStep = logIt
+    ? addLogStep(
+        fmt(copy('notes.openapi_request.label_template'), { path: openapiPath }),
+        'pending',
+        desc('notes.openapi_request') + formatRequest('GET', openapiUrl, null, null),
+      )
+    : null
+  let openapi
+  try {
+    const res = await fetch(openapiUrl)
+    openapi = await res.json().catch(() => null)
+    if (!res.ok || !openapi) {
+      if (oaStep) {
+        resolveStep(oaStep, 'error', fmt(copy('notes.openapi_request.label_resolved_template'), { path: openapiPath, status: res.status }))
+        appendStepBody(oaStep, formatResponse(res.status, null, openapi))
+      }
+      return null
+    }
+    if (oaStep) {
+      resolveStep(oaStep, 'success', fmt(copy('notes.openapi_request.label_resolved_template'), { path: openapiPath, status: 200 }))
+      // OpenAPI is verbose; collapse the full response behind a details block.
+      appendStepBody(oaStep,
+        `<details class="section-group"><summary class="section-heading"><span>Response</span>${CHEVRON_SVG}</summary>${formatResponse(200, null, openapi)}</details>`,
+      )
+    }
+  } catch (err) {
+    if (oaStep) {
+      resolveStep(oaStep, 'error', fmt(copy('notes.openapi_request.label_error_network_template'), { path: openapiPath }))
+      appendStepBody(oaStep, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`)
+    }
+    return null
+  }
+
+  return { metadata, openapi }
+}
+
+async function hydrateNotesOperations() {
+  if (_notesHydrated) return
+  const grid = document.getElementById('notes-ops-grid')
+  if (!grid) return
+
+  // Silent fetch — the user hasn't clicked anything yet, so don't
+  // pollute the log. The discovery leg is re-run (and logged) from
+  // runNotesAuthorize when the button click kicks off the full flow.
+  const result = await performNotesDiscovery(false)
+  if (!result) {
+    grid.innerHTML = `<p class="scope-caption" style="color: var(--error)">Couldn't fetch notes.aauth.dev metadata. Open the tab again to retry.</p>`
+    return
+  }
+  const { metadata, openapi } = result
+  _notesMetadata = metadata
+
+  // Extract operationId + summary in mental-model order: read first
+  // (list, get), then write (create, update, delete). Unknown ops fall
+  // at the end. Dependencies fall earlier so the picker reads like a
+  // natural checklist.
+  const ops = []
+  const paths = openapi.paths || {}
+  for (const pKey of Object.keys(paths)) {
+    const pObj = paths[pKey]
+    for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+      const op = pObj[method]
+      if (op?.operationId) {
+        ops.push({
+          operationId: op.operationId,
+          summary: op.summary || op.operationId,
+          method: method.toUpperCase(),
+          path: pKey,
+        })
+      }
+    }
+  }
+  const order = ['listNotes', 'getNote', 'createNote', 'updateNote', 'deleteNote']
+  ops.sort((a, b) => {
+    const ia = order.indexOf(a.operationId)
+    const ib = order.indexOf(b.operationId)
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+  })
+  _notesOperations = ops
+
+  // Default selection: all checked on first activation. On subsequent
+  // page loads restore whatever the user last saved. Anything in saved
+  // that isn't in the current OpenAPI is silently dropped.
+  const saved = window.aauthGetSavedNotesOperations?.()
+  const savedSet = saved ? new Set(saved) : null
+  grid.innerHTML = ops.map((op) => {
+    const checked = savedSet ? savedSet.has(op.operationId) : true
+    const title = `${op.method} ${op.path} — ${op.summary}`.replace(/"/g, '&quot;')
+    return `<label class="checkbox-label" title="${title}"><input type="checkbox" value="${escapeHtml(op.operationId)}"${checked ? ' checked' : ''}> <span>${escapeHtml(op.operationId)}</span></label>`
+  }).join('')
+
+  window.updateNotesRequestPreview?.()
+  _notesHydrated = true
+}
+
+// Tab-activation hook used by app.js's switcher. Notes is the only tab
+// that needs lazy setup today; whoami's scope list is static.
+window.aauthOnTabActivated = function aauthOnTabActivated(name) {
+  if (name === 'notes') {
+    hydrateNotesOperations().catch((err) => console.error('[aauth] notes hydrate:', err))
+  }
+}
+
+function getSelectedNotesOperations() {
+  return Array.from(document.querySelectorAll('#notes-ops-grid input[type="checkbox"]:checked'))
+    .map((cb) => ({ operationId: cb.value }))
+}
+
+async function startNotes() {
+  const { bindingPs } = window.aauthBinding.get()
+  if (!bindingPs) {
+    alert('No agent binding found. Bootstrap first.')
+    return
+  }
+
+  setActiveLog('resource-log')
+  clearLog()
+  showLog()
+
+  // Hide both panels' Call buttons so the flow owns the screen. Either
+  // clicking Another Request (.js-scroll-authz) or reloading re-shows
+  // them. Scoped to the resource-section so it doesn't hide unrelated
+  // buttons elsewhere.
+  document.querySelectorAll('#resource-section .authz-actions')
+    .forEach((el) => el.classList.add('hidden'))
+
+  let agentTokenValid = false
+  const savedAgentToken = localStorage.getItem('aauth-agent-token')
+  if (savedAgentToken) {
+    try {
+      const p = decodeJWTPayloadBrowser(savedAgentToken)
+      agentTokenValid = p && p.exp > Math.floor(Date.now() / 1000)
+    } catch { /* invalid token */ }
+  }
+  if (!agentTokenValid) {
+    const refreshed = await runRefresh()
+    if (!refreshed) return
+  }
+
+  // Ensure we have metadata. The user could click Notes with Hellō
+  // before the discovery fetch finishes, or after reload if they
+  // never opened the tab this session (pointless but possible).
+  if (!_notesMetadata) {
+    await hydrateNotesOperations()
+    if (!_notesMetadata) return // hydrate already logged the error
+  }
+
+  const operations = getSelectedNotesOperations()
+  if (operations.length === 0) {
+    addLogSection(copy('sections.notes'))
+    addLogStep('No operations selected', 'error',
+      '<p>Check at least one operation before clicking Notes with Hellō.</p>' + anotherRequestButton())
+    return
+  }
+
+  const hints = getHints()
+  await runNotesAuthorize(operations, bindingPs, hints)
+}
+
+async function runNotesAuthorize(operations, bindingPs, hints) {
+  const keyPair = window.aauthEphemeral.get()
+  const agentToken = localStorage.getItem('aauth-agent-token')
+  if (!keyPair || !agentToken) {
+    addLogStep(copy('authorize.missing_context.label'), 'error', desc('authorize.missing_context'))
+    return
+  }
+  const signingJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
+
+  addLogSection(copy('sections.notes'))
+
+  // Re-run discovery on each click so the protocol log always shows the
+  // full trail, even though the same metadata was silently fetched on
+  // tab activation. Cheap (CF edge cached) and the educational value is
+  // worth the extra round trip.
+  const discovery = await performNotesDiscovery(true)
+  if (!discovery) {
+    addLogStep('Notes discovery failed', 'error',
+      '<p>Couldn\'t fetch metadata or OpenAPI from notes.aauth.dev — see steps above.</p>' + anotherRequestButton())
+    return
+  }
+  _notesMetadata = discovery.metadata
+  const authzEndpoint = discovery.metadata.authorization_endpoint || `${window.NOTES_ORIGIN}/authorize`
+  const authzPath = new URL(authzEndpoint).pathname
+  const requestBody = {
+    r3_operations: {
+      vocabulary: window.NOTES_VOCABULARY,
+      operations,
+    },
+  }
+
+  // Step 1: POST /authorize to notes.aauth.dev, signed with agent_token.
+  const step1 = addLogStep(
+    fmt(copy('notes.authorize_request.label_template'), { path: authzPath }),
+    'pending',
+    desc('notes.authorize_request') +
+      formatRequest('POST', authzEndpoint, {
+        'Content-Type': 'application/json',
+        'Signature-Input': 'sig=("@method" "@authority" "@path" "content-type" "signature-key");created=...',
+        'Signature': 'sig=:...:',
+        'Signature-Key': `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`,
+      }, requestBody),
+  )
+  let resourceToken
+  try {
+    const res = await sigFetch(authzEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+      signingKey: signingJwk,
+      signingCryptoKey: keyPair.privateKey,
+      signatureKey: { type: 'jwt', jwt: agentToken },
+      components: ['@method', '@authority', '@path', 'content-type', 'signature-key'],
+    })
+    const body = await res.json().catch(() => null)
+    if (res.ok && body?.resource_token) {
+      resourceToken = body.resource_token
+      resolveStep(step1, 'success', fmt(copy('notes.authorize_request.label_resolved_template'), { path: authzPath, status: res.status }))
+      appendStepBody(step1, formatResponse(res.status, null, body))
+      appendStepBody(step1, formatToken('Resource Token (aa-resource+jwt)', resourceToken, decodeJWTPayloadBrowser(resourceToken)))
+    } else {
+      resolveStep(step1, 'error', fmt(copy('notes.authorize_request.label_resolved_template'), { path: authzPath, status: res.status }))
+      appendStepBody(step1, formatResponse(res.status, null, body) + anotherRequestButton())
+      return
+    }
+  } catch (err) {
+    resolveStep(step1, 'error', fmt(copy('notes.authorize_request.label_error_network_template'), { path: authzPath }))
+    appendStepBody(step1, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>` + anotherRequestButton())
+    return
+  }
+
+  // Step 2: PS /aauth/token exchange. Identical pattern to whoami; the
+  // PS fetches the R3 document named in resource_token and emits an
+  // auth_token with r3_granted once the user approves.
+  const psMetadataUrl = `${bindingPs.replace(/\/$/, '')}/.well-known/aauth-person.json`
+  let psMetadata
+  try {
+    const metaRes = await fetch(psMetadataUrl)
+    psMetadata = await metaRes.json()
+    if (!metaRes.ok || !psMetadata?.token_endpoint) {
+      addLogStep('Person Server metadata fetch failed', 'error',
+        formatResponse(metaRes.status, null, psMetadata) + anotherRequestButton())
+      return
+    }
+  } catch (err) {
+    addLogStep('Person Server metadata fetch failed', 'error',
+      `<p style="color: var(--error)">${escapeHtml(err.message)}</p>` + anotherRequestButton())
+    return
+  }
+
+  const tokenEndpoint = psMetadata.token_endpoint
+  const psPath = new URL(tokenEndpoint).pathname
+  const psBody = {
+    resource_token: resourceToken,
+    capabilities: ['interaction'],
+    prompt: 'consent',
+    ...hints,
+  }
+
+  const step2 = addLogStep(
+    fmt(copy('notes.ps_token_request.label_template'), { path: psPath }),
+    'pending',
+    desc('notes.ps_token_request') +
+      formatRequest('POST', tokenEndpoint, {
+        'Content-Type': 'application/json',
+        'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
+        'Signature': 'sig=:...:',
+        'Signature-Key': `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`,
+      }, psBody),
+  )
+  let authToken
+  try {
+    const psRes = await sigFetch(tokenEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(psBody),
+      signingKey: signingJwk,
+      signingCryptoKey: keyPair.privateKey,
+      signatureKey: { type: 'jwt', jwt: agentToken },
+      components: ['@method', '@authority', '@path', 'signature-key'],
+    })
+    const psResBody = await psRes.json().catch(() => null)
+    const respHeaders = {}
+    for (const key of ['location', 'retry-after', 'aauth-requirement']) {
+      const v = psRes.headers.get(key)
+      if (v) respHeaders[key] = v
+    }
+
+    if (psRes.status === 200 && psResBody?.auth_token) {
+      authToken = psResBody.auth_token
+      resolveStep(step2, 'success', fmt(copy('notes.ps_token_request.label_resolved_template'), { path: psPath, status: 200 }))
+      appendStepBody(step2, formatResponse(200, respHeaders, psResBody))
+      appendStepBody(step2, formatToken('Auth Token (aa-auth+jwt)', authToken, decodeJWTPayloadBrowser(authToken)))
+    } else if (psRes.status === 202) {
+      resolveStep(step2, 'success', fmt(copy('notes.ps_token_request.label_resolved_template'), { path: psPath, status: 202 }))
+      appendStepBody(step2, formatResponse(202, respHeaders, psResBody))
+
+      const reqHeader = psRes.headers.get('aauth-requirement') || ''
+      const fromHeader = parseInteractionHeader(reqHeader)
+      const interaction = {
+        requirement: fromHeader.requirement || psResBody?.requirement,
+        code: fromHeader.code || psResBody?.code,
+        url: fromHeader.url || psMetadata.interaction_endpoint,
+      }
+      const pollUrl = psRes.headers.get('location') || psResBody?.location
+
+      let pollStep = null
+      if (pollUrl) {
+        const absolutePollUrl = new URL(pollUrl, tokenEndpoint).href
+        pollStep = addLogStep(
+          fmt(copy('notes.ps_pending_longpoll.label_template'), { path: new URL(absolutePollUrl).pathname }),
+          'pending',
+          desc('notes.ps_pending_longpoll') +
+            formatRequest('GET', absolutePollUrl, {
+              'Prefer': `wait=${POLL_WAIT_SECONDS}`,
+              'Signature-Input': 'sig=("@method" "@authority" "@path" "signature-key");created=...',
+              'Signature': 'sig=:...:',
+              'Signature-Key': `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`,
+            }, null),
+        )
+      }
+      const interactionStep = addLogStep(copy('notes.ps_consent_prompt.label'), 'pending',
+        desc('notes.ps_consent_prompt') + renderInteraction(interaction, pollUrl, 'authorize'))
+
+      if (pollUrl) {
+        const absolutePollUrl = new URL(pollUrl, tokenEndpoint).href
+        savePendingAuthorize({
+          pollUrl: absolutePollUrl,
+          tokenEndpoint,
+          psUrl: bindingPs,
+          notesAuthorize: true,
+        })
+        startAuthTokenPolling(pollUrl, tokenEndpoint, interactionStep, pollStep, {
+          onAuthToken: async (tokenFromPoll) => {
+            await finalizeNotesAuthToken(tokenFromPoll)
+          },
+        })
+      }
+      return
+    } else {
+      resolveStep(step2, 'error', fmt(copy('notes.ps_token_request.label_resolved_template'), { path: psPath, status: psRes.status }))
+      appendStepBody(step2, formatResponse(psRes.status, respHeaders, psResBody) + anotherRequestButton())
+      return
+    }
+  } catch (err) {
+    resolveStep(step2, 'error', fmt(copy('notes.ps_token_request.label_error_network_template'), { path: psPath }))
+    appendStepBody(step2, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>` + anotherRequestButton())
+    return
+  }
+
+  await finalizeNotesAuthToken(authToken)
+}
+
+async function finalizeNotesAuthToken(authToken) {
+  localStorage.setItem(NOTES_AUTH_TOKEN_KEY, authToken)
+  addLogStep(copy('notes.auth_token_received.label'), 'success',
+    desc('notes.auth_token_received') +
+      formatToken('Auth Token (aa-auth+jwt)', authToken, decodeJWTPayloadBrowser(authToken)) +
+      anotherRequestButton(),
+  )
+  revealNotesApp()
+  renderNotesApp()
+  if (getGrantedOps().has('listNotes')) await refreshNotesList()
+}
+
+// ── Notes app UI ──
+//
+// All notes state lives in the notes auth_token (r3_granted) and the
+// in-memory _notesCache (last list response). Every button click
+// routes through callNotesAPI so every user action shows in the
+// resource-log. Note mutations refetch via refreshNotesList if
+// listNotes is granted; otherwise they re-render from the immediate
+// response.
+
+function getStoredNotesAuthToken() {
+  const t = localStorage.getItem(NOTES_AUTH_TOKEN_KEY)
+  if (!t) return null
+  try {
+    const p = decodeJWTPayloadBrowser(t)
+    if (!p || !p.exp || p.exp < Math.floor(Date.now() / 1000)) return null
+    return t
+  } catch { return null }
+}
+
+function getGrantedOps() {
+  const token = getStoredNotesAuthToken()
+  if (!token) return new Set()
+  const payload = decodeJWTPayloadBrowser(token) || {}
+  const granted = payload.r3_granted?.operations || []
+  return new Set(granted.map((o) => o.operationId))
+}
+
+function revealNotesApp() {
+  const section = document.getElementById('notes-section')
+  if (!section) return
+  const wasHidden = section.classList.contains('hidden')
+  section.classList.remove('hidden')
+  if (wasHidden) section.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function hideNotesApp() {
+  document.getElementById('notes-section')?.classList.add('hidden')
+}
+
+function renderNotesApp() {
+  const app = document.getElementById('notes-app')
+  if (!app) return
+  const granted = getGrantedOps()
+  if (granted.size === 0) {
+    app.innerHTML = '<p class="scope-caption">No operations granted. Click Notes with Hellō to try again.</p>'
+    return
+  }
+
+  const parts = []
+  parts.push(`<p class="scope-caption">Granted: ${Array.from(granted).sort().map((o) => `<code>${escapeHtml(o)}</code>`).join(', ')}</p>`)
+
+  if (granted.has('createNote')) {
+    parts.push(`
+      <div class="notes-create">
+        <input type="text" class="notes-input" id="notes-new-title" placeholder="Title" maxlength="512">
+        <textarea class="notes-input" id="notes-new-content" placeholder="Content" rows="3" maxlength="1024"></textarea>
+        <div class="note-actions">
+          <button type="button" class="btn-primary" id="notes-create-btn">Create note</button>
+        </div>
+      </div>
+    `)
+  }
+
+  if (granted.has('listNotes')) {
+    parts.push(`<div id="notes-list"><p class="scope-caption">Loading…</p></div>`)
+  } else {
+    parts.push(`<p class="scope-caption">Without <code>listNotes</code> granted, you can only create new notes.</p>`)
+  }
+
+  app.innerHTML = parts.join('')
+
+  document.getElementById('notes-create-btn')?.addEventListener('click', async () => {
+    const titleEl = document.getElementById('notes-new-title')
+    const contentEl = document.getElementById('notes-new-content')
+    const title = titleEl.value.trim()
+    const content = contentEl.value.trim()
+    if (!title || !content) { alert('Title and content required.'); return }
+    const created = await callNotesAPI('POST', '/notes', { title, content })
+    if (!created) return
+    titleEl.value = ''
+    contentEl.value = ''
+    if (getGrantedOps().has('listNotes')) await refreshNotesList()
+  })
+
+  // Delegate row-action clicks on the list. Single listener on the
+  // stable #notes-list container survives re-renders.
+  document.getElementById('notes-list')?.addEventListener('click', notesRowClickHandler)
+}
+
+async function refreshNotesList() {
+  const granted = getGrantedOps()
+  if (!granted.has('listNotes')) return
+  const list = await callNotesAPI('GET', '/notes')
+  if (!Array.isArray(list)) return
+  _notesCache = list
+  renderNotesList()
+}
+
+function renderNotesList() {
+  const container = document.getElementById('notes-list')
+  if (!container) return
+  const granted = getGrantedOps()
+  if (_notesCache.length === 0) {
+    container.innerHTML = '<p class="scope-caption">No notes yet.</p>'
+    return
+  }
+  const ctx = { canGet: granted.has('getNote'), canUpdate: granted.has('updateNote'), canDelete: granted.has('deleteNote') }
+  container.innerHTML = _notesCache.map((n) => renderNoteRow(n, ctx)).join('')
+}
+
+function renderNoteRow(note, { canGet, canUpdate, canDelete }) {
+  const expiresIn = formatRelativeExpires(note.expires_at)
+  const buttons = []
+  if (canGet) buttons.push(`<button type="button" class="btn-outline" data-note-action="view" data-note-id="${escapeHtml(note.id)}">View</button>`)
+  if (canUpdate) buttons.push(`<button type="button" class="btn-outline" data-note-action="edit" data-note-id="${escapeHtml(note.id)}">Edit</button>`)
+  if (canDelete) buttons.push(`<button type="button" class="btn-outline" data-note-action="delete" data-note-id="${escapeHtml(note.id)}">Delete</button>`)
+  return `
+    <div class="note-row" data-note-id="${escapeHtml(note.id)}">
+      <div class="note-title">${escapeHtml(note.title)}</div>
+      <div class="note-content">${escapeHtml(note.content)}</div>
+      <div class="note-meta">
+        <span>expires ${escapeHtml(expiresIn)}</span>
+        <span class="note-actions">${buttons.join('')}</span>
+      </div>
+    </div>
+  `
+}
+
+function formatRelativeExpires(expires_at) {
+  const secs = expires_at - Math.floor(Date.now() / 1000)
+  if (secs <= 0) return 'now'
+  const h = Math.floor(secs / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  if (h > 0) return `in ${h}h ${m}m`
+  return `in ${m}m`
+}
+
+async function notesRowClickHandler(e) {
+  const btn = e.target.closest('button[data-note-action]')
+  if (!btn) return
+  const action = btn.dataset.noteAction
+  const id = btn.dataset.noteId
+  const row = btn.closest('.note-row')
+  const note = _notesCache.find((n) => n.id === id)
+  if (!note) return
+
+  if (action === 'view') {
+    const fresh = await callNotesAPI('GET', `/notes/${encodeURIComponent(id)}`)
+    if (fresh) {
+      const i = _notesCache.findIndex((n) => n.id === id)
+      if (i !== -1) _notesCache[i] = fresh
+      renderNotesList()
+    }
+  } else if (action === 'edit') {
+    startEditRow(row, note)
+  } else if (action === 'delete') {
+    if (!confirm(`Delete "${note.title}"?`)) return
+    const ok = await callNotesAPI('DELETE', `/notes/${encodeURIComponent(id)}`)
+    if (ok !== null) {
+      _notesCache = _notesCache.filter((n) => n.id !== id)
+      renderNotesList()
+    }
+  }
+}
+
+function startEditRow(row, note) {
+  row.innerHTML = `
+    <input type="text" class="notes-input" data-edit-title value="${escapeHtml(note.title)}" maxlength="512">
+    <textarea class="notes-input" data-edit-content rows="3" maxlength="1024">${escapeHtml(note.content)}</textarea>
+    <div class="note-actions">
+      <button type="button" class="btn-primary" data-edit-save>Save</button>
+      <button type="button" class="btn-outline" data-edit-cancel>Cancel</button>
+    </div>
+  `
+  row.querySelector('[data-edit-save]')?.addEventListener('click', async () => {
+    const title = row.querySelector('[data-edit-title]').value.trim()
+    const content = row.querySelector('[data-edit-content]').value.trim()
+    if (!title || !content) { alert('Title and content required.'); return }
+    const updated = await callNotesAPI('PUT', `/notes/${encodeURIComponent(note.id)}`, { title, content })
+    if (!updated) return
+    const i = _notesCache.findIndex((n) => n.id === note.id)
+    if (i !== -1) _notesCache[i] = updated
+    renderNotesList()
+  })
+  row.querySelector('[data-edit-cancel]')?.addEventListener('click', () => renderNotesList())
+}
+
+async function callNotesAPI(method, path, body) {
+  const authToken = getStoredNotesAuthToken()
+  if (!authToken) {
+    localStorage.removeItem(NOTES_AUTH_TOKEN_KEY)
+    hideNotesApp()
+    alert('Notes token expired. Click Notes with Hellō to re-authorize.')
+    return null
+  }
+  const keyPair = window.aauthEphemeral.get()
+  if (!keyPair) return null
+  const signingJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
+  const origin = window.NOTES_ORIGIN || 'https://notes.aauth.dev'
+  const url = `${origin}${path}`
+  const hasBody = body !== undefined && body !== null
+  const components = hasBody
+    ? ['@method', '@authority', '@path', 'content-type', 'signature-key']
+    : ['@method', '@authority', '@path', 'signature-key']
+
+  const copyKey =
+    method === 'GET' && path === '/notes' ? 'notes_app.list_request'
+    : method === 'POST' ? 'notes_app.create_request'
+    : method === 'PUT' ? 'notes_app.update_request'
+    : method === 'DELETE' ? 'notes_app.delete_request'
+    : 'notes_app.get_request'
+
+  setActiveLog('resource-log')
+  showLog()
+  const step = addLogStep(
+    fmt(copy(`${copyKey}.label_template`), { path }),
+    'pending',
+    desc(copyKey) +
+      formatRequest(method, url, {
+        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+        'Signature-Input': 'sig=(...);created=...',
+        'Signature': 'sig=:...:',
+        'Signature-Key': `sig=jwt;jwt="${authToken.substring(0, 20)}..."`,
+      }, hasBody ? body : null),
+  )
+
+  try {
+    const res = await sigFetch(url, {
+      method,
+      headers: hasBody ? { 'Content-Type': 'application/json' } : {},
+      body: hasBody ? JSON.stringify(body) : undefined,
+      signingKey: signingJwk,
+      signingCryptoKey: keyPair.privateKey,
+      signatureKey: { type: 'jwt', jwt: authToken },
+      components,
+    })
+    const resBody = res.status === 204 ? null : await res.json().catch(() => null)
+    if (res.ok) {
+      resolveStep(step, 'success', fmt(copy(`${copyKey}.label_resolved_template`), { path, status: res.status }))
+      appendStepBody(step, formatResponse(res.status, null, resBody))
+      return res.status === 204 ? true : resBody
+    }
+    resolveStep(step, 'error', fmt(copy(`${copyKey}.label_resolved_template`), { path, status: res.status }))
+    appendStepBody(step, formatResponse(res.status, null, resBody))
+    // 401 means the auth_token is no longer honored — stop trying so the
+    // user doesn't get a cascade of identical failures from other
+    // buttons. They can re-click Notes with Hellō for a fresh token.
+    if (res.status === 401) {
+      localStorage.removeItem(NOTES_AUTH_TOKEN_KEY)
+      hideNotesApp()
+    }
+    return null
+  } catch (err) {
+    resolveStep(step, 'error', fmt(copy(`${copyKey}.label_error_network_template`), { path }))
+    appendStepBody(step, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`)
+    return null
+  }
+}
+
+// Called from app.js on page load: if the stored notes auth_token is
+// still within its `exp`, re-mount the Notes app from its r3_granted
+// without replaying the discovery/authorize flow. Expired or missing
+// tokens leave the fieldset hidden.
+async function restoreNotesApp() {
+  if (!getStoredNotesAuthToken()) return
+  revealNotesApp()
+  renderNotesApp()
+  if (getGrantedOps().has('listNotes')) await refreshNotesList()
+}
+window.aauthRestoreNotesApp = restoreNotesApp
+
 // ── Wire up Bootstrap + Resource Request buttons ──
 
 document.getElementById('bootstrap-btn')?.addEventListener('click', startBootstrap)
 document.getElementById('whoami-btn')?.addEventListener('click', startWhoami)
+document.getElementById('notes-btn')?.addEventListener('click', startNotes)
 
 // Hellō Continue button — swap to loader state on click so the user
 // sees immediate feedback while the same-tab redirect navigates away.
@@ -1804,9 +2521,11 @@ document.addEventListener('click', (e) => {
   if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' })
   setActiveLog('resource-log')
   setTimeout(clearLog, 300)
-  // Re-show the Call button — startWhoami hid it when this request
-  // kicked off.
-  document.querySelector('#resource-section .authz-actions')?.classList.remove('hidden')
+  // Re-show every resource tab's Call button — a tab switch after the
+  // flow terminated could leave the other panel's button hidden if we
+  // targeted only one.
+  document.querySelectorAll('#resource-section .authz-actions')
+    .forEach((el) => el.classList.remove('hidden'))
 })
 
 // ── Close the loop: call the demo resource API with the minted auth_token ──

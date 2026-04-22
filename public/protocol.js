@@ -2835,7 +2835,9 @@
       bootstrap_resumed: "Bootstrap (resumed)",
       refresh: "Refresh",
       whoami: "Whoami",
-      whoami_resumed: "Whoami (resumed)"
+      whoami_resumed: "Whoami (resumed)",
+      notes: "Notes",
+      notes_resumed: "Notes (resumed)"
     },
     bootstrap: {
       generate_ephemeral: {
@@ -2994,6 +2996,94 @@
       ps_consent_prompt: {
         label: "User at Person Server: consent prompt (resumed)",
         description: "You returned mid-approval. The agent picks up the same pending request instead of starting over."
+      }
+    },
+    notes: {
+      resource_metadata_request: {
+        label_template: "Agent \u2192 Notes Resource: GET {path}",
+        label_resolved_template: "Agent \u2192 Notes Resource: GET {path} \u2192 {status}",
+        label_error_network_template: "Agent \u2192 Notes Resource: GET {path} (network error)",
+        description: "The agent fetches the resource's well-known metadata to discover the authorization endpoint plus the OpenAPI document describing the operations it can request."
+      },
+      openapi_request: {
+        label_template: "Agent \u2192 Notes Resource: GET {path}",
+        label_resolved_template: "Agent \u2192 Notes Resource: GET {path} \u2192 {status}",
+        label_error_network_template: "Agent \u2192 Notes Resource: GET {path} (network error)",
+        description: "The agent pulls the OpenAPI spec so it can render a checkbox per operationId \u2014 the protocol lets the agent ask for exactly the operations it needs."
+      },
+      authorize_request: {
+        label_template: "Agent \u2192 Notes Resource: POST {path}",
+        label_resolved_template: "Agent \u2192 Notes Resource: POST {path} \u2192 {status}",
+        label_error_network_template: "Agent \u2192 Notes Resource: POST {path} (network error)",
+        description: "The agent POSTs the operations it wants to the resource's authorize endpoint, signed with its agent_token. The resource responds with a resource_token naming an R3 document the Person Server will fetch during token exchange."
+      },
+      ps_token_request: {
+        label_template: "Agent \u2192 Person Server: POST {path}",
+        label_resolved_template: "Agent \u2192 Person Server: POST {path} \u2192 {status}",
+        label_error_network_template: "Agent \u2192 Person Server: POST {path} (network error)",
+        description: "The agent trades the resource_token at the Person Server's token endpoint. A 200 means consent was already on file; a 202 triggers a consent prompt. The Person Server fetches the R3 document, then emits an auth_token carrying r3_granted \u2014 the operations it's releasing."
+      },
+      ps_pending_longpoll: {
+        label_template: "Agent \u2192 Person Server: GET {path} (long-poll)",
+        label_resolved_template: "Agent \u2192 Person Server: GET {path} \u2192 {status}",
+        description: "If new consent is needed, the agent keeps a request open while you decide. The Person Server replies the moment you approve or deny."
+      },
+      ps_consent_prompt: {
+        label: "User at Person Server: consent prompt",
+        description: "Your Person Server asks which of the requested operations to grant. Approve here, or scan the QR to approve on another device.",
+        label_resolved_success: "Interaction Completed",
+        label_resolved_denied: "Interaction Denied",
+        label_resolved_timed_out: "Interaction Timed Out"
+      },
+      auth_token_received: {
+        label: "Auth Token received",
+        description: "The Person Server released an auth_token with r3_granted \u2014 the operations you actually approved. The agent stores this and uses it to sign every call to the Notes API."
+      },
+      authorization_denied: {
+        label: "Authorization Denied",
+        description: ""
+      },
+      authorization_timed_out: {
+        label: "Authorization Timed Out",
+        description: ""
+      }
+    },
+    notes_resumed: {
+      ps_consent_prompt: {
+        label: "User at Person Server: consent prompt (resumed)",
+        description: "You returned mid-approval of a Notes request. The agent picks up the same pending exchange instead of starting over."
+      }
+    },
+    notes_app: {
+      list_request: {
+        label_template: "Agent \u2192 Notes API: GET {path}",
+        label_resolved_template: "Agent \u2192 Notes API: GET {path} \u2192 {status}",
+        label_error_network_template: "Agent \u2192 Notes API: GET {path} (network error)",
+        description: "The agent lists the user's notes, signing the request with the auth_token."
+      },
+      create_request: {
+        label_template: "Agent \u2192 Notes API: POST {path}",
+        label_resolved_template: "Agent \u2192 Notes API: POST {path} \u2192 {status}",
+        label_error_network_template: "Agent \u2192 Notes API: POST {path} (network error)",
+        description: "The agent creates a new note."
+      },
+      get_request: {
+        label_template: "Agent \u2192 Notes API: GET {path}",
+        label_resolved_template: "Agent \u2192 Notes API: GET {path} \u2192 {status}",
+        label_error_network_template: "Agent \u2192 Notes API: GET {path} (network error)",
+        description: "The agent reads a single note by id."
+      },
+      update_request: {
+        label_template: "Agent \u2192 Notes API: PUT {path}",
+        label_resolved_template: "Agent \u2192 Notes API: PUT {path} \u2192 {status}",
+        label_error_network_template: "Agent \u2192 Notes API: PUT {path} (network error)",
+        description: "The agent updates an existing note. Saving resets the note's 24-hour expiry."
+      },
+      delete_request: {
+        label_template: "Agent \u2192 Notes API: DELETE {path}",
+        label_resolved_template: "Agent \u2192 Notes API: DELETE {path} \u2192 {status}",
+        label_error_network_template: "Agent \u2192 Notes API: DELETE {path} (network error)",
+        description: "The agent deletes a note."
       }
     },
     demo_api: {
@@ -4242,20 +4332,28 @@ ${renderJSON(body)}`;
     }
     if (_resumeAuthorizePolling) return false;
     _resumeAuthorizePolling = true;
-    document.querySelector("#resource-section .authz-actions")?.classList.add("hidden");
+    document.querySelectorAll("#resource-section .authz-actions").forEach((el) => el.classList.add("hidden"));
     setActiveLog("resource-log");
     showLog();
+    const isNotes = !!saved.notesAuthorize;
+    const promptKey = isNotes ? "notes_resumed.ps_consent_prompt" : "whoami_resumed.ps_consent_prompt";
     const log = currentLog();
     if (!log.querySelector(":scope > details.log-section")) {
-      addLogSection(copy("sections.whoami"));
+      addLogSection(copy(isNotes ? "sections.notes" : "sections.whoami"));
     }
     const interactionStep = addLogStep(
-      copy("whoami_resumed.ps_consent_prompt.label"),
+      copy(`${promptKey}.label`),
       "pending",
-      desc("whoami_resumed.ps_consent_prompt") + `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
+      desc(promptKey) + `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
     );
     let options = {};
-    if (saved.whoamiUrl) {
+    if (isNotes) {
+      options = {
+        onAuthToken: async (tokenFromPoll) => {
+          await finalizeNotesAuthToken(tokenFromPoll);
+        }
+      };
+    } else if (saved.whoamiUrl) {
       const urlObj = new URL(saved.whoamiUrl);
       const whoamiPathDisplay = urlObj.pathname + urlObj.search;
       const signingJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
@@ -4399,8 +4497,594 @@ ${renderJSON(body)}`;
       return null;
     }
   }
+  var NOTES_AUTH_TOKEN_KEY = "aauth-notes-auth-token";
+  var _notesHydrated = false;
+  var _notesMetadata = null;
+  var _notesOperations = [];
+  var _notesCache = [];
+  async function performNotesDiscovery(logIt) {
+    const notesOrigin = window.NOTES_ORIGIN || "https://notes.aauth.dev";
+    const metadataUrl = `${notesOrigin}/.well-known/aauth-resource.json`;
+    const metadataPath = "/.well-known/aauth-resource.json";
+    const metaStep = logIt ? addLogStep(
+      fmt(copy("notes.resource_metadata_request.label_template"), { path: metadataPath }),
+      "pending",
+      desc("notes.resource_metadata_request") + formatRequest("GET", metadataUrl, null, null)
+    ) : null;
+    let metadata;
+    try {
+      const res = await fetch(metadataUrl);
+      metadata = await res.json().catch(() => null);
+      if (!res.ok || !metadata) {
+        if (metaStep) {
+          resolveStep(metaStep, "error", fmt(copy("notes.resource_metadata_request.label_resolved_template"), { path: metadataPath, status: res.status }));
+          appendStepBody(metaStep, formatResponse(res.status, null, metadata));
+        }
+        return null;
+      }
+      if (metaStep) {
+        resolveStep(metaStep, "success", fmt(copy("notes.resource_metadata_request.label_resolved_template"), { path: metadataPath, status: 200 }));
+        appendStepBody(metaStep, formatResponse(200, null, metadata));
+      }
+    } catch (err) {
+      if (metaStep) {
+        resolveStep(metaStep, "error", fmt(copy("notes.resource_metadata_request.label_error_network_template"), { path: metadataPath }));
+        appendStepBody(metaStep, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`);
+      }
+      return null;
+    }
+    const openapiUrl = metadata.r3_vocabularies?.[window.NOTES_VOCABULARY] || `${notesOrigin}/openapi.json`;
+    const openapiPath = new URL(openapiUrl).pathname;
+    const oaStep = logIt ? addLogStep(
+      fmt(copy("notes.openapi_request.label_template"), { path: openapiPath }),
+      "pending",
+      desc("notes.openapi_request") + formatRequest("GET", openapiUrl, null, null)
+    ) : null;
+    let openapi;
+    try {
+      const res = await fetch(openapiUrl);
+      openapi = await res.json().catch(() => null);
+      if (!res.ok || !openapi) {
+        if (oaStep) {
+          resolveStep(oaStep, "error", fmt(copy("notes.openapi_request.label_resolved_template"), { path: openapiPath, status: res.status }));
+          appendStepBody(oaStep, formatResponse(res.status, null, openapi));
+        }
+        return null;
+      }
+      if (oaStep) {
+        resolveStep(oaStep, "success", fmt(copy("notes.openapi_request.label_resolved_template"), { path: openapiPath, status: 200 }));
+        appendStepBody(
+          oaStep,
+          `<details class="section-group"><summary class="section-heading"><span>Response</span>${CHEVRON_SVG}</summary>${formatResponse(200, null, openapi)}</details>`
+        );
+      }
+    } catch (err) {
+      if (oaStep) {
+        resolveStep(oaStep, "error", fmt(copy("notes.openapi_request.label_error_network_template"), { path: openapiPath }));
+        appendStepBody(oaStep, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`);
+      }
+      return null;
+    }
+    return { metadata, openapi };
+  }
+  async function hydrateNotesOperations() {
+    if (_notesHydrated) return;
+    const grid = document.getElementById("notes-ops-grid");
+    if (!grid) return;
+    const result = await performNotesDiscovery(false);
+    if (!result) {
+      grid.innerHTML = `<p class="scope-caption" style="color: var(--error)">Couldn't fetch notes.aauth.dev metadata. Open the tab again to retry.</p>`;
+      return;
+    }
+    const { metadata, openapi } = result;
+    _notesMetadata = metadata;
+    const ops = [];
+    const paths = openapi.paths || {};
+    for (const pKey of Object.keys(paths)) {
+      const pObj = paths[pKey];
+      for (const method of ["get", "post", "put", "patch", "delete"]) {
+        const op = pObj[method];
+        if (op?.operationId) {
+          ops.push({
+            operationId: op.operationId,
+            summary: op.summary || op.operationId,
+            method: method.toUpperCase(),
+            path: pKey
+          });
+        }
+      }
+    }
+    const order = ["listNotes", "getNote", "createNote", "updateNote", "deleteNote"];
+    ops.sort((a, b) => {
+      const ia = order.indexOf(a.operationId);
+      const ib = order.indexOf(b.operationId);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
+    _notesOperations = ops;
+    const saved = window.aauthGetSavedNotesOperations?.();
+    const savedSet = saved ? new Set(saved) : null;
+    grid.innerHTML = ops.map((op) => {
+      const checked = savedSet ? savedSet.has(op.operationId) : true;
+      const title = `${op.method} ${op.path} \u2014 ${op.summary}`.replace(/"/g, "&quot;");
+      return `<label class="checkbox-label" title="${title}"><input type="checkbox" value="${escapeHtml(op.operationId)}"${checked ? " checked" : ""}> <span>${escapeHtml(op.operationId)}</span></label>`;
+    }).join("");
+    window.updateNotesRequestPreview?.();
+    _notesHydrated = true;
+  }
+  window.aauthOnTabActivated = function aauthOnTabActivated(name) {
+    if (name === "notes") {
+      hydrateNotesOperations().catch((err) => console.error("[aauth] notes hydrate:", err));
+    }
+  };
+  function getSelectedNotesOperations() {
+    return Array.from(document.querySelectorAll('#notes-ops-grid input[type="checkbox"]:checked')).map((cb) => ({ operationId: cb.value }));
+  }
+  async function startNotes() {
+    const { bindingPs } = window.aauthBinding.get();
+    if (!bindingPs) {
+      alert("No agent binding found. Bootstrap first.");
+      return;
+    }
+    setActiveLog("resource-log");
+    clearLog();
+    showLog();
+    document.querySelectorAll("#resource-section .authz-actions").forEach((el) => el.classList.add("hidden"));
+    let agentTokenValid = false;
+    const savedAgentToken = localStorage.getItem("aauth-agent-token");
+    if (savedAgentToken) {
+      try {
+        const p = decodeJWTPayloadBrowser(savedAgentToken);
+        agentTokenValid = p && p.exp > Math.floor(Date.now() / 1e3);
+      } catch {
+      }
+    }
+    if (!agentTokenValid) {
+      const refreshed = await runRefresh();
+      if (!refreshed) return;
+    }
+    if (!_notesMetadata) {
+      await hydrateNotesOperations();
+      if (!_notesMetadata) return;
+    }
+    const operations = getSelectedNotesOperations();
+    if (operations.length === 0) {
+      addLogSection(copy("sections.notes"));
+      addLogStep(
+        "No operations selected",
+        "error",
+        "<p>Check at least one operation before clicking Notes with Hell\u014D.</p>" + anotherRequestButton()
+      );
+      return;
+    }
+    const hints = getHints();
+    await runNotesAuthorize(operations, bindingPs, hints);
+  }
+  async function runNotesAuthorize(operations, bindingPs, hints) {
+    const keyPair = window.aauthEphemeral.get();
+    const agentToken = localStorage.getItem("aauth-agent-token");
+    if (!keyPair || !agentToken) {
+      addLogStep(copy("authorize.missing_context.label"), "error", desc("authorize.missing_context"));
+      return;
+    }
+    const signingJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    addLogSection(copy("sections.notes"));
+    const discovery = await performNotesDiscovery(true);
+    if (!discovery) {
+      addLogStep(
+        "Notes discovery failed",
+        "error",
+        "<p>Couldn't fetch metadata or OpenAPI from notes.aauth.dev \u2014 see steps above.</p>" + anotherRequestButton()
+      );
+      return;
+    }
+    _notesMetadata = discovery.metadata;
+    const authzEndpoint = discovery.metadata.authorization_endpoint || `${window.NOTES_ORIGIN}/authorize`;
+    const authzPath = new URL(authzEndpoint).pathname;
+    const requestBody = {
+      r3_operations: {
+        vocabulary: window.NOTES_VOCABULARY,
+        operations
+      }
+    };
+    const step1 = addLogStep(
+      fmt(copy("notes.authorize_request.label_template"), { path: authzPath }),
+      "pending",
+      desc("notes.authorize_request") + formatRequest("POST", authzEndpoint, {
+        "Content-Type": "application/json",
+        "Signature-Input": 'sig=("@method" "@authority" "@path" "content-type" "signature-key");created=...',
+        "Signature": "sig=:...:",
+        "Signature-Key": `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`
+      }, requestBody)
+    );
+    let resourceToken;
+    try {
+      const res = await (0, import_httpsig.fetch)(authzEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+        signingKey: signingJwk,
+        signingCryptoKey: keyPair.privateKey,
+        signatureKey: { type: "jwt", jwt: agentToken },
+        components: ["@method", "@authority", "@path", "content-type", "signature-key"]
+      });
+      const body = await res.json().catch(() => null);
+      if (res.ok && body?.resource_token) {
+        resourceToken = body.resource_token;
+        resolveStep(step1, "success", fmt(copy("notes.authorize_request.label_resolved_template"), { path: authzPath, status: res.status }));
+        appendStepBody(step1, formatResponse(res.status, null, body));
+        appendStepBody(step1, formatToken("Resource Token (aa-resource+jwt)", resourceToken, decodeJWTPayloadBrowser(resourceToken)));
+      } else {
+        resolveStep(step1, "error", fmt(copy("notes.authorize_request.label_resolved_template"), { path: authzPath, status: res.status }));
+        appendStepBody(step1, formatResponse(res.status, null, body) + anotherRequestButton());
+        return;
+      }
+    } catch (err) {
+      resolveStep(step1, "error", fmt(copy("notes.authorize_request.label_error_network_template"), { path: authzPath }));
+      appendStepBody(step1, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>` + anotherRequestButton());
+      return;
+    }
+    const psMetadataUrl = `${bindingPs.replace(/\/$/, "")}/.well-known/aauth-person.json`;
+    let psMetadata;
+    try {
+      const metaRes = await fetch(psMetadataUrl);
+      psMetadata = await metaRes.json();
+      if (!metaRes.ok || !psMetadata?.token_endpoint) {
+        addLogStep(
+          "Person Server metadata fetch failed",
+          "error",
+          formatResponse(metaRes.status, null, psMetadata) + anotherRequestButton()
+        );
+        return;
+      }
+    } catch (err) {
+      addLogStep(
+        "Person Server metadata fetch failed",
+        "error",
+        `<p style="color: var(--error)">${escapeHtml(err.message)}</p>` + anotherRequestButton()
+      );
+      return;
+    }
+    const tokenEndpoint = psMetadata.token_endpoint;
+    const psPath = new URL(tokenEndpoint).pathname;
+    const psBody = {
+      resource_token: resourceToken,
+      capabilities: ["interaction"],
+      prompt: "consent",
+      ...hints
+    };
+    const step2 = addLogStep(
+      fmt(copy("notes.ps_token_request.label_template"), { path: psPath }),
+      "pending",
+      desc("notes.ps_token_request") + formatRequest("POST", tokenEndpoint, {
+        "Content-Type": "application/json",
+        "Signature-Input": 'sig=("@method" "@authority" "@path" "signature-key");created=...',
+        "Signature": "sig=:...:",
+        "Signature-Key": `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`
+      }, psBody)
+    );
+    let authToken;
+    try {
+      const psRes = await (0, import_httpsig.fetch)(tokenEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(psBody),
+        signingKey: signingJwk,
+        signingCryptoKey: keyPair.privateKey,
+        signatureKey: { type: "jwt", jwt: agentToken },
+        components: ["@method", "@authority", "@path", "signature-key"]
+      });
+      const psResBody = await psRes.json().catch(() => null);
+      const respHeaders = {};
+      for (const key of ["location", "retry-after", "aauth-requirement"]) {
+        const v = psRes.headers.get(key);
+        if (v) respHeaders[key] = v;
+      }
+      if (psRes.status === 200 && psResBody?.auth_token) {
+        authToken = psResBody.auth_token;
+        resolveStep(step2, "success", fmt(copy("notes.ps_token_request.label_resolved_template"), { path: psPath, status: 200 }));
+        appendStepBody(step2, formatResponse(200, respHeaders, psResBody));
+        appendStepBody(step2, formatToken("Auth Token (aa-auth+jwt)", authToken, decodeJWTPayloadBrowser(authToken)));
+      } else if (psRes.status === 202) {
+        resolveStep(step2, "success", fmt(copy("notes.ps_token_request.label_resolved_template"), { path: psPath, status: 202 }));
+        appendStepBody(step2, formatResponse(202, respHeaders, psResBody));
+        const reqHeader = psRes.headers.get("aauth-requirement") || "";
+        const fromHeader = parseInteractionHeader(reqHeader);
+        const interaction = {
+          requirement: fromHeader.requirement || psResBody?.requirement,
+          code: fromHeader.code || psResBody?.code,
+          url: fromHeader.url || psMetadata.interaction_endpoint
+        };
+        const pollUrl = psRes.headers.get("location") || psResBody?.location;
+        let pollStep = null;
+        if (pollUrl) {
+          const absolutePollUrl = new URL(pollUrl, tokenEndpoint).href;
+          pollStep = addLogStep(
+            fmt(copy("notes.ps_pending_longpoll.label_template"), { path: new URL(absolutePollUrl).pathname }),
+            "pending",
+            desc("notes.ps_pending_longpoll") + formatRequest("GET", absolutePollUrl, {
+              "Prefer": `wait=${POLL_WAIT_SECONDS}`,
+              "Signature-Input": 'sig=("@method" "@authority" "@path" "signature-key");created=...',
+              "Signature": "sig=:...:",
+              "Signature-Key": `sig=jwt;jwt="${agentToken?.substring(0, 20)}..."`
+            }, null)
+          );
+        }
+        const interactionStep = addLogStep(
+          copy("notes.ps_consent_prompt.label"),
+          "pending",
+          desc("notes.ps_consent_prompt") + renderInteraction(interaction, pollUrl, "authorize")
+        );
+        if (pollUrl) {
+          const absolutePollUrl = new URL(pollUrl, tokenEndpoint).href;
+          savePendingAuthorize({
+            pollUrl: absolutePollUrl,
+            tokenEndpoint,
+            psUrl: bindingPs,
+            notesAuthorize: true
+          });
+          startAuthTokenPolling(pollUrl, tokenEndpoint, interactionStep, pollStep, {
+            onAuthToken: async (tokenFromPoll) => {
+              await finalizeNotesAuthToken(tokenFromPoll);
+            }
+          });
+        }
+        return;
+      } else {
+        resolveStep(step2, "error", fmt(copy("notes.ps_token_request.label_resolved_template"), { path: psPath, status: psRes.status }));
+        appendStepBody(step2, formatResponse(psRes.status, respHeaders, psResBody) + anotherRequestButton());
+        return;
+      }
+    } catch (err) {
+      resolveStep(step2, "error", fmt(copy("notes.ps_token_request.label_error_network_template"), { path: psPath }));
+      appendStepBody(step2, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>` + anotherRequestButton());
+      return;
+    }
+    await finalizeNotesAuthToken(authToken);
+  }
+  async function finalizeNotesAuthToken(authToken) {
+    localStorage.setItem(NOTES_AUTH_TOKEN_KEY, authToken);
+    addLogStep(
+      copy("notes.auth_token_received.label"),
+      "success",
+      desc("notes.auth_token_received") + formatToken("Auth Token (aa-auth+jwt)", authToken, decodeJWTPayloadBrowser(authToken)) + anotherRequestButton()
+    );
+    revealNotesApp();
+    renderNotesApp();
+    if (getGrantedOps().has("listNotes")) await refreshNotesList();
+  }
+  function getStoredNotesAuthToken() {
+    const t = localStorage.getItem(NOTES_AUTH_TOKEN_KEY);
+    if (!t) return null;
+    try {
+      const p = decodeJWTPayloadBrowser(t);
+      if (!p || !p.exp || p.exp < Math.floor(Date.now() / 1e3)) return null;
+      return t;
+    } catch {
+      return null;
+    }
+  }
+  function getGrantedOps() {
+    const token = getStoredNotesAuthToken();
+    if (!token) return /* @__PURE__ */ new Set();
+    const payload = decodeJWTPayloadBrowser(token) || {};
+    const granted = payload.r3_granted?.operations || [];
+    return new Set(granted.map((o) => o.operationId));
+  }
+  function revealNotesApp() {
+    const section = document.getElementById("notes-section");
+    if (!section) return;
+    const wasHidden = section.classList.contains("hidden");
+    section.classList.remove("hidden");
+    if (wasHidden) section.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function hideNotesApp() {
+    document.getElementById("notes-section")?.classList.add("hidden");
+  }
+  function renderNotesApp() {
+    const app = document.getElementById("notes-app");
+    if (!app) return;
+    const granted = getGrantedOps();
+    if (granted.size === 0) {
+      app.innerHTML = '<p class="scope-caption">No operations granted. Click Notes with Hell\u014D to try again.</p>';
+      return;
+    }
+    const parts = [];
+    parts.push(`<p class="scope-caption">Granted: ${Array.from(granted).sort().map((o) => `<code>${escapeHtml(o)}</code>`).join(", ")}</p>`);
+    if (granted.has("createNote")) {
+      parts.push(`
+      <div class="notes-create">
+        <input type="text" class="notes-input" id="notes-new-title" placeholder="Title" maxlength="512">
+        <textarea class="notes-input" id="notes-new-content" placeholder="Content" rows="3" maxlength="1024"></textarea>
+        <div class="note-actions">
+          <button type="button" class="btn-primary" id="notes-create-btn">Create note</button>
+        </div>
+      </div>
+    `);
+    }
+    if (granted.has("listNotes")) {
+      parts.push(`<div id="notes-list"><p class="scope-caption">Loading\u2026</p></div>`);
+    } else {
+      parts.push(`<p class="scope-caption">Without <code>listNotes</code> granted, you can only create new notes.</p>`);
+    }
+    app.innerHTML = parts.join("");
+    document.getElementById("notes-create-btn")?.addEventListener("click", async () => {
+      const titleEl = document.getElementById("notes-new-title");
+      const contentEl = document.getElementById("notes-new-content");
+      const title = titleEl.value.trim();
+      const content = contentEl.value.trim();
+      if (!title || !content) {
+        alert("Title and content required.");
+        return;
+      }
+      const created = await callNotesAPI("POST", "/notes", { title, content });
+      if (!created) return;
+      titleEl.value = "";
+      contentEl.value = "";
+      if (getGrantedOps().has("listNotes")) await refreshNotesList();
+    });
+    document.getElementById("notes-list")?.addEventListener("click", notesRowClickHandler);
+  }
+  async function refreshNotesList() {
+    const granted = getGrantedOps();
+    if (!granted.has("listNotes")) return;
+    const list = await callNotesAPI("GET", "/notes");
+    if (!Array.isArray(list)) return;
+    _notesCache = list;
+    renderNotesList();
+  }
+  function renderNotesList() {
+    const container = document.getElementById("notes-list");
+    if (!container) return;
+    const granted = getGrantedOps();
+    if (_notesCache.length === 0) {
+      container.innerHTML = '<p class="scope-caption">No notes yet.</p>';
+      return;
+    }
+    const ctx = { canGet: granted.has("getNote"), canUpdate: granted.has("updateNote"), canDelete: granted.has("deleteNote") };
+    container.innerHTML = _notesCache.map((n) => renderNoteRow(n, ctx)).join("");
+  }
+  function renderNoteRow(note, { canGet, canUpdate, canDelete }) {
+    const expiresIn = formatRelativeExpires(note.expires_at);
+    const buttons = [];
+    if (canGet) buttons.push(`<button type="button" class="btn-outline" data-note-action="view" data-note-id="${escapeHtml(note.id)}">View</button>`);
+    if (canUpdate) buttons.push(`<button type="button" class="btn-outline" data-note-action="edit" data-note-id="${escapeHtml(note.id)}">Edit</button>`);
+    if (canDelete) buttons.push(`<button type="button" class="btn-outline" data-note-action="delete" data-note-id="${escapeHtml(note.id)}">Delete</button>`);
+    return `
+    <div class="note-row" data-note-id="${escapeHtml(note.id)}">
+      <div class="note-title">${escapeHtml(note.title)}</div>
+      <div class="note-content">${escapeHtml(note.content)}</div>
+      <div class="note-meta">
+        <span>expires ${escapeHtml(expiresIn)}</span>
+        <span class="note-actions">${buttons.join("")}</span>
+      </div>
+    </div>
+  `;
+  }
+  function formatRelativeExpires(expires_at) {
+    const secs = expires_at - Math.floor(Date.now() / 1e3);
+    if (secs <= 0) return "now";
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor(secs % 3600 / 60);
+    if (h > 0) return `in ${h}h ${m}m`;
+    return `in ${m}m`;
+  }
+  async function notesRowClickHandler(e) {
+    const btn = e.target.closest("button[data-note-action]");
+    if (!btn) return;
+    const action = btn.dataset.noteAction;
+    const id = btn.dataset.noteId;
+    const row = btn.closest(".note-row");
+    const note = _notesCache.find((n) => n.id === id);
+    if (!note) return;
+    if (action === "view") {
+      const fresh = await callNotesAPI("GET", `/notes/${encodeURIComponent(id)}`);
+      if (fresh) {
+        const i = _notesCache.findIndex((n) => n.id === id);
+        if (i !== -1) _notesCache[i] = fresh;
+        renderNotesList();
+      }
+    } else if (action === "edit") {
+      startEditRow(row, note);
+    } else if (action === "delete") {
+      if (!confirm(`Delete "${note.title}"?`)) return;
+      const ok = await callNotesAPI("DELETE", `/notes/${encodeURIComponent(id)}`);
+      if (ok !== null) {
+        _notesCache = _notesCache.filter((n) => n.id !== id);
+        renderNotesList();
+      }
+    }
+  }
+  function startEditRow(row, note) {
+    row.innerHTML = `
+    <input type="text" class="notes-input" data-edit-title value="${escapeHtml(note.title)}" maxlength="512">
+    <textarea class="notes-input" data-edit-content rows="3" maxlength="1024">${escapeHtml(note.content)}</textarea>
+    <div class="note-actions">
+      <button type="button" class="btn-primary" data-edit-save>Save</button>
+      <button type="button" class="btn-outline" data-edit-cancel>Cancel</button>
+    </div>
+  `;
+    row.querySelector("[data-edit-save]")?.addEventListener("click", async () => {
+      const title = row.querySelector("[data-edit-title]").value.trim();
+      const content = row.querySelector("[data-edit-content]").value.trim();
+      if (!title || !content) {
+        alert("Title and content required.");
+        return;
+      }
+      const updated = await callNotesAPI("PUT", `/notes/${encodeURIComponent(note.id)}`, { title, content });
+      if (!updated) return;
+      const i = _notesCache.findIndex((n) => n.id === note.id);
+      if (i !== -1) _notesCache[i] = updated;
+      renderNotesList();
+    });
+    row.querySelector("[data-edit-cancel]")?.addEventListener("click", () => renderNotesList());
+  }
+  async function callNotesAPI(method, path, body) {
+    const authToken = getStoredNotesAuthToken();
+    if (!authToken) {
+      localStorage.removeItem(NOTES_AUTH_TOKEN_KEY);
+      hideNotesApp();
+      alert("Notes token expired. Click Notes with Hell\u014D to re-authorize.");
+      return null;
+    }
+    const keyPair = window.aauthEphemeral.get();
+    if (!keyPair) return null;
+    const signingJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    const origin = window.NOTES_ORIGIN || "https://notes.aauth.dev";
+    const url = `${origin}${path}`;
+    const hasBody = body !== void 0 && body !== null;
+    const components = hasBody ? ["@method", "@authority", "@path", "content-type", "signature-key"] : ["@method", "@authority", "@path", "signature-key"];
+    const copyKey = method === "GET" && path === "/notes" ? "notes_app.list_request" : method === "POST" ? "notes_app.create_request" : method === "PUT" ? "notes_app.update_request" : method === "DELETE" ? "notes_app.delete_request" : "notes_app.get_request";
+    setActiveLog("resource-log");
+    showLog();
+    const step = addLogStep(
+      fmt(copy(`${copyKey}.label_template`), { path }),
+      "pending",
+      desc(copyKey) + formatRequest(method, url, {
+        ...hasBody ? { "Content-Type": "application/json" } : {},
+        "Signature-Input": "sig=(...);created=...",
+        "Signature": "sig=:...:",
+        "Signature-Key": `sig=jwt;jwt="${authToken.substring(0, 20)}..."`
+      }, hasBody ? body : null)
+    );
+    try {
+      const res = await (0, import_httpsig.fetch)(url, {
+        method,
+        headers: hasBody ? { "Content-Type": "application/json" } : {},
+        body: hasBody ? JSON.stringify(body) : void 0,
+        signingKey: signingJwk,
+        signingCryptoKey: keyPair.privateKey,
+        signatureKey: { type: "jwt", jwt: authToken },
+        components
+      });
+      const resBody = res.status === 204 ? null : await res.json().catch(() => null);
+      if (res.ok) {
+        resolveStep(step, "success", fmt(copy(`${copyKey}.label_resolved_template`), { path, status: res.status }));
+        appendStepBody(step, formatResponse(res.status, null, resBody));
+        return res.status === 204 ? true : resBody;
+      }
+      resolveStep(step, "error", fmt(copy(`${copyKey}.label_resolved_template`), { path, status: res.status }));
+      appendStepBody(step, formatResponse(res.status, null, resBody));
+      if (res.status === 401) {
+        localStorage.removeItem(NOTES_AUTH_TOKEN_KEY);
+        hideNotesApp();
+      }
+      return null;
+    } catch (err) {
+      resolveStep(step, "error", fmt(copy(`${copyKey}.label_error_network_template`), { path }));
+      appendStepBody(step, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`);
+      return null;
+    }
+  }
+  async function restoreNotesApp() {
+    if (!getStoredNotesAuthToken()) return;
+    revealNotesApp();
+    renderNotesApp();
+    if (getGrantedOps().has("listNotes")) await refreshNotesList();
+  }
+  window.aauthRestoreNotesApp = restoreNotesApp;
   document.getElementById("bootstrap-btn")?.addEventListener("click", startBootstrap);
   document.getElementById("whoami-btn")?.addEventListener("click", startWhoami);
+  document.getElementById("notes-btn")?.addEventListener("click", startNotes);
   document.addEventListener("click", (e) => {
     const helloBtn = e.target.closest(".interaction-actions .hello-btn");
     if (helloBtn) helloBtn.classList.add("hello-btn-loader");
@@ -4412,7 +5096,7 @@ ${renderJSON(body)}`;
     if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
     setActiveLog("resource-log");
     setTimeout(clearLog, 300);
-    document.querySelector("#resource-section .authz-actions")?.classList.remove("hidden");
+    document.querySelectorAll("#resource-section .authz-actions").forEach((el) => el.classList.remove("hidden"));
   });
   async function callDemoResourceApi(authToken) {
     const endpoint = `${window.location.origin}/api/demo`;

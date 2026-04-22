@@ -464,6 +464,35 @@ function updateWhoamiUrlPreview() {
 }
 window.updateWhoamiUrlPreview = updateWhoamiUrlPreview
 
+// Notes request-body preview — mirrors the JSON we'll POST to
+// notes.aauth.dev/authorize. Updates live as operation checkboxes toggle.
+// Checkboxes are injected by protocol.js after it fetches metadata +
+// openapi on first tab activation; until then the preview shows an
+// empty operations array.
+const NOTES_ORIGIN = 'https://notes.aauth.dev'
+const NOTES_VOCABULARY = 'urn:aauth:vocabulary:openapi'
+window.NOTES_ORIGIN = NOTES_ORIGIN
+window.NOTES_VOCABULARY = NOTES_VOCABULARY
+
+function getSelectedNotesOperationList() {
+  return Array.from(document.querySelectorAll('#notes-ops-grid input[type="checkbox"]:checked'))
+    .map((cb) => cb.value)
+}
+
+function updateNotesRequestPreview() {
+  const el = document.getElementById('notes-request-preview')
+  if (!el) return
+  const operations = getSelectedNotesOperationList().map((operationId) => ({ operationId }))
+  const body = {
+    r3_operations: {
+      vocabulary: NOTES_VOCABULARY,
+      operations,
+    },
+  }
+  el.textContent = JSON.stringify(body, null, 2)
+}
+window.updateNotesRequestPreview = updateNotesRequestPreview
+
 // ── Settings persistence ──
 // Mirrors the playground.hello.dev pattern: one localStorage key holds all
 // user-customizable settings (PS selection, scopes, hints) as JSON.
@@ -486,6 +515,11 @@ function loadSettings() {
       b.checked = set.has(b.value)
     }
   }
+
+  // Notes operations are saved here too, but the checkboxes don't exist
+  // until protocol.js fetches the OpenAPI on first tab activation.
+  // hydrateNotesOperations() reads saved.notes_operations via
+  // window.aauthGetSavedNotesOperations() and applies it after rendering.
 
   // Restore hint inputs + their enable checkboxes. saved.hints is
   // `{ [id]: string }` for values and saved.hints_enabled is `[id, ...]`
@@ -510,6 +544,22 @@ function saveSettings() {
     document.querySelectorAll('#identity-scope-grid input[type="checkbox"]:checked')
   ).map(b => b.value)
 
+  // Read notes_operations if the checkboxes are mounted; otherwise
+  // preserve what's already stored so a save triggered from the whoami
+  // tab doesn't nuke a persisted notes selection.
+  let notes_operations
+  const notesBoxes = document.querySelectorAll('#notes-ops-grid input[type="checkbox"]')
+  if (notesBoxes.length > 0) {
+    notes_operations = Array.from(notesBoxes)
+      .filter((b) => b.checked)
+      .map((b) => b.value)
+  } else {
+    try {
+      const prior = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}
+      if (Array.isArray(prior.notes_operations)) notes_operations = prior.notes_operations
+    } catch { /* ignore corrupt JSON */ }
+  }
+
   const hints = {}
   const hints_enabled = []
   for (const f of HINT_FIELDS) {
@@ -521,9 +571,19 @@ function saveSettings() {
 
   localStorage.setItem(SETTINGS_KEY, JSON.stringify({
     identity_scopes,
+    notes_operations,
     hints,
     hints_enabled,
   }))
+}
+
+// Exposed for protocol.js: read the persisted notes_operations list so
+// hydrateNotesOperations can restore checkbox state after rendering.
+window.aauthGetSavedNotesOperations = function aauthGetSavedNotesOperations() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}
+    return Array.isArray(saved.notes_operations) ? saved.notes_operations : null
+  } catch { return null }
 }
 
 // Returns the URL of the PS. The picker is fixed to a single server, so this
@@ -547,18 +607,28 @@ function wireSettingsAutosave() {
   // Scope toggles also update the URL preview live.
   document.getElementById('identity-scope-grid')
     ?.addEventListener('change', updateWhoamiUrlPreview)
+
+  // Notes operation toggles refresh the JSON body preview. Delegated on
+  // the grid container because checkboxes are injected dynamically after
+  // the OpenAPI fetch — the handler exists before the inputs do.
+  document.getElementById('notes-ops-grid')
+    ?.addEventListener('change', updateNotesRequestPreview)
 }
 
 // ── Initialization ──
 
 // Hydrate the identity scope picker BEFORE restoring saved selections —
 // loadSettings queries checkboxes by value, so they have to exist first.
-// Then wire autosave and paint the initial whoami URL preview.
+// Then wire autosave and paint the initial whoami URL preview. The
+// notes preview paints once on init too, with an empty operations array
+// until the user activates that tab and protocol.js hydrates the
+// checkboxes from the fetched OpenAPI.
 ;(async () => {
   hydrateIdentityScopes()
   loadSettings()
   wireSettingsAutosave()
   updateWhoamiUrlPreview()
+  updateNotesRequestPreview()
 })()
 
 // Copy button SVG icons — inlined for crisp rendering at any scale.
@@ -575,10 +645,10 @@ renderCopyIcons()
 new MutationObserver(() => renderCopyIcons()).observe(document.body, { childList: true, subtree: true })
 
 // Resource Request tab switcher — toggles .tab-active on the buttons
-// and the `hidden` attribute on each .tab-panel. Tabs are stubs today
-// (only whoami is wired to a real flow; r3 is a duplicate placeholder
-// for a colleague to fill in), so the switcher is deliberately
-// content-agnostic — it just shows the matching panel by data-tab.
+// and the `hidden` attribute on each .tab-panel. On each activation we
+// fire window.aauthOnTabActivated(name) so protocol.js can trigger
+// tab-specific lazy setup (e.g. fetching notes metadata + openapi
+// the first time the notes tab is opened).
 document.querySelector('#resource-section .tab-row')?.addEventListener('click', (e) => {
   const tab = e.target.closest('.tab')
   if (!tab) return
@@ -593,6 +663,7 @@ document.querySelector('#resource-section .tab-row')?.addEventListener('click', 
   for (const panel of section.querySelectorAll('.tab-panel')) {
     panel.hidden = panel.dataset.panel !== name
   }
+  try { window.aauthOnTabActivated?.(name) } catch { /* handler is advisory */ }
 })
 
 // Copy buttons — delegated. `data-copy` copies a literal string; `data-copy-target`
@@ -648,6 +719,8 @@ document.getElementById('bootstrap-reset-btn')?.addEventListener('click', async 
 
   // Bootstrap-scoped localStorage keys. Scope selections + hints live in
   // aauth-playground-settings and are preserved across a bootstrap reset.
+  // Any auth_token issued under the old binding is useless after reset
+  // (it names the previous aauth:local@host), so clear those too.
   const BOOTSTRAP_KEYS = [
     'aauth-binding-key',
     'aauth-binding-ps',
@@ -655,6 +728,7 @@ document.getElementById('bootstrap-reset-btn')?.addEventListener('click', async 
     'aauth-agent-token',
     'aauth-pending-bootstrap',
     'aauth-pending-authorize',
+    'aauth-notes-auth-token',
   ]
   for (const k of BOOTSTRAP_KEYS) localStorage.removeItem(k)
   window.aauthClearAllPersistedLogs?.()
@@ -668,8 +742,18 @@ document.getElementById('reset-btn')?.addEventListener('click', () => {
   localStorage.removeItem(SETTINGS_KEY)
   localStorage.removeItem('aauth-pending-authorize')
   localStorage.removeItem('aauth-pending-whoami')
+  localStorage.removeItem('aauth-notes-auth-token')
   window.aauthClearPersistedLog?.('resource-log')
 
+  location.reload()
+})
+
+// Notes fieldset Reset — scoped to just the notes auth_token. Leaves
+// the bootstrap binding and any other resource state alone, so the
+// user can re-run the R3 flow with a different set of operations.
+document.getElementById('notes-reset-btn')?.addEventListener('click', () => {
+  localStorage.removeItem('aauth-notes-auth-token')
+  window.aauthClearPersistedLog?.('resource-log')
   location.reload()
 })
 
@@ -702,4 +786,9 @@ document.getElementById('reset-btn')?.addEventListener('click', () => {
   // is saved or it's gone stale.
   window.resumePendingInteraction?.()
   window.resumePendingAuthorize?.()
+
+  // If a valid notes auth_token is still in localStorage, re-mount the
+  // Notes app without replaying the discovery/authorize flow. Expired
+  // or missing tokens leave the Notes fieldset hidden.
+  window.aauthRestoreNotesApp?.()
 })()

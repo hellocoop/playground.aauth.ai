@@ -6,7 +6,9 @@
     "bootstrap_resumed": "Bootstrap (resumed)",
     "refresh": "Refresh",
     "whoami": "Whoami",
-    "whoami_resumed": "Whoami (resumed)"
+    "whoami_resumed": "Whoami (resumed)",
+    "notes": "Notes",
+    "notes_resumed": "Notes (resumed)"
   },
 
   "bootstrap": {
@@ -170,6 +172,97 @@
     "ps_consent_prompt": {
       "label": "User at Person Server: consent prompt (resumed)",
       "description": "You returned mid-approval. The agent picks up the same pending request instead of starting over."
+    }
+  },
+
+  "notes": {
+    "resource_metadata_request": {
+      "label_template": "Agent → Notes Resource: GET {path}",
+      "label_resolved_template": "Agent → Notes Resource: GET {path} → {status}",
+      "label_error_network_template": "Agent → Notes Resource: GET {path} (network error)",
+      "description": "The agent fetches the resource's well-known metadata to discover the authorization endpoint plus the OpenAPI document describing the operations it can request."
+    },
+    "openapi_request": {
+      "label_template": "Agent → Notes Resource: GET {path}",
+      "label_resolved_template": "Agent → Notes Resource: GET {path} → {status}",
+      "label_error_network_template": "Agent → Notes Resource: GET {path} (network error)",
+      "description": "The agent pulls the OpenAPI spec so it can render a checkbox per operationId — the protocol lets the agent ask for exactly the operations it needs."
+    },
+    "authorize_request": {
+      "label_template": "Agent → Notes Resource: POST {path}",
+      "label_resolved_template": "Agent → Notes Resource: POST {path} → {status}",
+      "label_error_network_template": "Agent → Notes Resource: POST {path} (network error)",
+      "description": "The agent POSTs the operations it wants to the resource's authorize endpoint, signed with its agent_token. The resource responds with a resource_token naming an R3 document the Person Server will fetch during token exchange."
+    },
+    "ps_token_request": {
+      "label_template": "Agent → Person Server: POST {path}",
+      "label_resolved_template": "Agent → Person Server: POST {path} → {status}",
+      "label_error_network_template": "Agent → Person Server: POST {path} (network error)",
+      "description": "The agent trades the resource_token at the Person Server's token endpoint. A 200 means consent was already on file; a 202 triggers a consent prompt. The Person Server fetches the R3 document, then emits an auth_token carrying r3_granted — the operations it's releasing."
+    },
+    "ps_pending_longpoll": {
+      "label_template": "Agent → Person Server: GET {path} (long-poll)",
+      "label_resolved_template": "Agent → Person Server: GET {path} → {status}",
+      "description": "If new consent is needed, the agent keeps a request open while you decide. The Person Server replies the moment you approve or deny."
+    },
+    "ps_consent_prompt": {
+      "label": "User at Person Server: consent prompt",
+      "description": "Your Person Server asks which of the requested operations to grant. Approve here, or scan the QR to approve on another device.",
+      "label_resolved_success": "Interaction Completed",
+      "label_resolved_denied": "Interaction Denied",
+      "label_resolved_timed_out": "Interaction Timed Out"
+    },
+    "auth_token_received": {
+      "label": "Auth Token received",
+      "description": "The Person Server released an auth_token with r3_granted — the operations you actually approved. The agent stores this and uses it to sign every call to the Notes API."
+    },
+    "authorization_denied": {
+      "label": "Authorization Denied",
+      "description": ""
+    },
+    "authorization_timed_out": {
+      "label": "Authorization Timed Out",
+      "description": ""
+    }
+  },
+
+  "notes_resumed": {
+    "ps_consent_prompt": {
+      "label": "User at Person Server: consent prompt (resumed)",
+      "description": "You returned mid-approval of a Notes request. The agent picks up the same pending exchange instead of starting over."
+    }
+  },
+
+  "notes_app": {
+    "list_request": {
+      "label_template": "Agent → Notes API: GET {path}",
+      "label_resolved_template": "Agent → Notes API: GET {path} → {status}",
+      "label_error_network_template": "Agent → Notes API: GET {path} (network error)",
+      "description": "The agent lists the user's notes, signing the request with the auth_token."
+    },
+    "create_request": {
+      "label_template": "Agent → Notes API: POST {path}",
+      "label_resolved_template": "Agent → Notes API: POST {path} → {status}",
+      "label_error_network_template": "Agent → Notes API: POST {path} (network error)",
+      "description": "The agent creates a new note."
+    },
+    "get_request": {
+      "label_template": "Agent → Notes API: GET {path}",
+      "label_resolved_template": "Agent → Notes API: GET {path} → {status}",
+      "label_error_network_template": "Agent → Notes API: GET {path} (network error)",
+      "description": "The agent reads a single note by id."
+    },
+    "update_request": {
+      "label_template": "Agent → Notes API: PUT {path}",
+      "label_resolved_template": "Agent → Notes API: PUT {path} → {status}",
+      "label_error_network_template": "Agent → Notes API: PUT {path} (network error)",
+      "description": "The agent updates an existing note. Saving resets the note's 24-hour expiry."
+    },
+    "delete_request": {
+      "label_template": "Agent → Notes API: DELETE {path}",
+      "label_resolved_template": "Agent → Notes API: DELETE {path} → {status}",
+      "label_error_network_template": "Agent → Notes API: DELETE {path} (network error)",
+      "description": "The agent deletes a note."
     }
   },
 
