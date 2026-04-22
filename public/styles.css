@@ -292,6 +292,13 @@ a { color: var(--accent); }
 .section-group > .section-heading.section-heading-static {
   cursor: default;
 }
+/* Caption appended to a heading — e.g. "Request Body  Uses R3 (Rich…)".
+   Reads as subdued metadata next to the bold heading, like a tag. */
+.section-heading-note {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--muted);
+}
 .ps-url {
   color: var(--text);
 }
@@ -547,17 +554,21 @@ a.hello-btn { text-decoration: none; }
   margin-top: 1rem;
 }
 
-/* Agent Identity panel (#auth-section) hangs right below #bootstrap-log
-   inside the same fieldset. Carries a success-colored left border so
-   the green protocol-trace line continues unbroken from the last
-   bootstrap step all the way down to the "Bootstrap complete" legend —
-   the ceremony reads as one contiguous trace, not a trace + a separate
-   card. padding-top (vs margin-top) keeps the border contiguous with
-   the last log-step's border above. */
-#auth-section:not(.hidden) {
+/* Green protocol-trace line wrapping the whole Bootstrap output — step
+   log + Agent Token + Decoded Payload. Agent Identity intentionally
+   sits outside this wrapper so the line marks only the ceremony's
+   trace, not its final result. */
+#bootstrap-artifacts:not(.hidden) {
   border-left: 3px solid var(--success);
   padding-left: 1rem;
   padding-top: 1rem;
+}
+
+/* Spacing between the log and the token details (when they're not
+   moved into the log's section). Mid-flow the log alone is here; on
+   reload-with-tokens, the token details are siblings below the log. */
+#bootstrap-artifacts > #bootstrap-log + details.section-group {
+  margin-top: 0.75rem;
 }
 
 /* Each addLogSection() call emits a <details class="log-section"> whose
@@ -732,7 +743,6 @@ details.log-section + details.log-section {
   font-family: 'IBM Plex Mono', 'SF Mono', 'Fira Code', monospace;
   margin: 0 0 0.4rem 0;
 }
-.scope-required { color: var(--text); margin-left: 0.15rem; }
 .scope-caption {
   color: var(--muted);
   font-size: 0.78rem;

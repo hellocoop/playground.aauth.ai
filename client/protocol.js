@@ -110,20 +110,74 @@ function clearLog() {
   const log = currentLog()
   if (!log) return
   // Preserve the Agent Token + Decoded Payload details: they're pinned
-  // to the bootstrap ceremony's log section for collapse/expand, but
-  // must survive a re-bootstrap's clearLog so their populated content
-  // isn't destroyed. Park them back in #bootstrap-token-stash; they
-  // re-enter the fresh log section via applyBootstrapResult.
+  // to the bootstrap ceremony's log section on fresh flows for joint
+  // collapse/expand, but must survive a re-bootstrap's clearLog so
+  // their populated content isn't destroyed. Reparent them to
+  // #bootstrap-artifacts (the green-line wrapper) as siblings of the
+  // log; applyBootstrapResult moves them back into the new log
+  // section on completion.
   if (log.id === 'bootstrap-log') {
-    const stash = document.getElementById('bootstrap-token-stash')
+    const artifacts = document.getElementById('bootstrap-artifacts')
     const tokenDetails = log.querySelector('#agent-token-details')
     const decodedDetails = log.querySelector('#decoded-payload-details')
-    if (stash && tokenDetails) stash.appendChild(tokenDetails)
-    if (stash && decodedDetails) stash.appendChild(decodedDetails)
+    if (artifacts && tokenDetails) artifacts.appendChild(tokenDetails)
+    if (artifacts && decodedDetails) artifacts.appendChild(decodedDetails)
   }
   log.innerHTML = ''
   log.classList.add('hidden')
+  // Any persisted snapshot is now stale — the in-memory log is empty.
+  if (PERSIST_LOG_IDS.includes(log.id)) clearPersistedLog(log.id)
 }
+
+// ── Log persistence (survives same-tab PS redirect) ──
+//
+// Save bootstrap-log / resource-log HTML to localStorage after every
+// log mutation. On page load (app.js init), restore into the
+// containers BEFORE resumePendingInteraction / resumePendingAuthorize
+// fire — so the resumed flow appends into the same <details
+// class="log-section"> it was writing before the redirect, no new
+// "(resumed)" section break.
+//
+// Clear at terminals (success / failure / reset) so a later page
+// reload shows the default Agent Identity-only state rather than a
+// stale "last ceremony was X" snapshot.
+
+const PERSIST_LOG_IDS = ['bootstrap-log', 'resource-log']
+const persistKey = (id) => `aauth-log-${id}`
+
+function persistActiveLog() {
+  const log = currentLog()
+  if (!log || !PERSIST_LOG_IDS.includes(log.id)) return
+  try { localStorage.setItem(persistKey(log.id), log.innerHTML) } catch {}
+}
+
+function clearPersistedLog(id) {
+  try { localStorage.removeItem(persistKey(id)) } catch {}
+}
+
+function clearAllPersistedLogs() {
+  for (const id of PERSIST_LOG_IDS) clearPersistedLog(id)
+}
+
+function restorePersistedLogs() {
+  for (const id of PERSIST_LOG_IDS) {
+    const saved = localStorage.getItem(persistKey(id))
+    if (!saved) continue
+    const log = document.getElementById(id)
+    if (!log) continue
+    log.innerHTML = saved
+    log.classList.remove('hidden')
+    // Reveal the green-line wrapper that contains bootstrap-log so the
+    // restored trace is actually visible; app.js setAuthenticated may
+    // not have fired yet (e.g., pending-bootstrap with no agent_token).
+    if (id === 'bootstrap-log') {
+      document.getElementById('bootstrap-artifacts')?.classList.remove('hidden')
+    }
+  }
+}
+window.aauthClearPersistedLog = clearPersistedLog
+window.aauthClearAllPersistedLogs = clearAllPersistedLogs
+window.aauthRestorePersistedLogs = restorePersistedLogs
 
 function showLog() {
   const log = currentLog()
@@ -170,6 +224,7 @@ function addLogSection(title) {
   summary.textContent = title
   section.appendChild(summary)
   log.appendChild(section)
+  persistActiveLog()
 }
 
 // Return the most recently added section <details> that steps should
@@ -205,6 +260,7 @@ function addLogStep(label, status, content) {
   requestAnimationFrame(() => {
     step.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
+  persistActiveLog()
   return step
 }
 
@@ -217,6 +273,7 @@ function resolveStep(step, status, label) {
   const textEl = step.querySelector('.step-text')
   if (statusEl) statusEl.outerHTML = statusIndicatorHtml(status)
   if (textEl) textEl.textContent = label
+  persistActiveLog()
 }
 
 // Append additional HTML into an existing step's body — used to fold a
@@ -227,6 +284,7 @@ function appendStepBody(step, html) {
   const body = step.querySelector('.log-step-body')
   if (!body) return
   body.insertAdjacentHTML('beforeend', html)
+  persistActiveLog()
 }
 
 function anotherRequestButton() {
@@ -234,6 +292,17 @@ function anotherRequestButton() {
   // the .js-scroll-authz click handler — the two CTAs never want to be
   // on screen at the same time. Another Request is the only path back
   // to a fresh form while the flow's terminal state is visible.
+  //
+  // Terminal UI also means "flow is done" — schedule a persisted-log
+  // clear via microtask so the next page reload starts from the
+  // default state. The microtask runs after the enclosing addLogStep's
+  // synchronous persistActiveLog, overwriting that snapshot with an
+  // empty entry. We capture the active log id NOW because by the time
+  // the microtask fires the active log may have been reset.
+  const activeId = currentLog()?.id
+  if (activeId && PERSIST_LOG_IDS.includes(activeId)) {
+    queueMicrotask(() => clearPersistedLog(activeId))
+  }
   return `<div class="log-actions"><button type="button" class="btn-outline js-scroll-authz">${escapeHtml(copy('ui.another_request_button'))}</button></div>`
 }
 
@@ -770,6 +839,13 @@ async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, 
     }
   }
 
+  // Bootstrap ceremony is fully terminal here (success or failure
+  // returned earlier). Clear the persisted log — the success path
+  // doesn't render anotherRequestButton, so its auto-clear microtask
+  // wouldn't fire. A microtask runs after the last in-flight persist
+  // from the announce block above.
+  queueMicrotask(() => clearPersistedLog('bootstrap-log'))
+
   return { result }
 }
 
@@ -952,14 +1028,6 @@ async function startBootstrap() {
   const controls = document.getElementById('bootstrap-controls')
   controls?.classList.add('hidden')
 
-  // Route all log calls during bootstrap to the log container inside
-  // the Bootstrap Agent fieldset. Kept set until startWhoami takes
-  // over; refresh (which fires from inside startWhoami) logs into the
-  // resource-log instead.
-  setActiveLog('bootstrap-log')
-  clearLog()
-  showLog()
-
   const hints = getHints()
 
   // Fresh bootstrap — drop any stale binding/token before starting.
@@ -971,6 +1039,19 @@ async function startBootstrap() {
   // Bootstrap agent button leaves the previous "Bound as …" line and
   // the old agent-token panels on screen while the new ceremony runs.
   window.aauthUI?.setUnauthenticated?.()
+
+  // Show the green-line artifacts wrapper so the bootstrap-log
+  // renders. setUnauthenticated hid it as part of the reset; we want
+  // it visible for the flow that's about to start.
+  document.getElementById('bootstrap-artifacts')?.classList.remove('hidden')
+
+  // Route all log calls during bootstrap to the log container inside
+  // the Bootstrap Agent fieldset. Kept set until startWhoami takes
+  // over; refresh (which fires from inside startWhoami) logs into the
+  // resource-log instead.
+  setActiveLog('bootstrap-log')
+  clearLog()
+  showLog()
 
   const result = await runBootstrap(psUrl, hints)
   if (!result) {
@@ -1392,12 +1473,21 @@ async function resumePendingInteraction() {
   // Resumed bootstrap — log into the same fieldset as the original
   // startBootstrap run so the user sees the full round trip (go to PS,
   // return, mint agent token) in one contiguous section log. Also hide
-  // the pre-bootstrap CTA — the ceremony is in progress, same as the
-  // post-click state before the redirect.
+  // the pre-bootstrap CTA and show the green-line artifacts wrapper —
+  // same visible state as directly after the initial click.
   document.getElementById('bootstrap-controls')?.classList.add('hidden')
+  document.getElementById('bootstrap-artifacts')?.classList.remove('hidden')
   setActiveLog('bootstrap-log')
   showLog()
-  addLogSection(copy('sections.bootstrap_resumed'))
+  // Don't open a new "(resumed)" section — the persisted log already
+  // carries the in-progress Bootstrap section and we want the polled
+  // steps to flow into it. Fallback: if the persisted log is empty
+  // (e.g., localStorage was cleared mid-flow), open a Bootstrap section
+  // so subsequent addLogStep calls have a target.
+  const log = currentLog()
+  if (!log.querySelector(':scope > details.log-section')) {
+    addLogSection(copy('sections.bootstrap'))
+  }
   const publicJwk = await crypto.subtle.exportKey('jwk', kp.publicKey)
   const interactionStep = addLogStep(copy('bootstrap_resumed.ps_consent_prompt.label'), 'pending',
     desc('bootstrap_resumed.ps_consent_prompt') +
@@ -1448,30 +1538,6 @@ function placeTokenDetailsInBootstrapLog({ open }) {
   }
 }
 window.aauthPlaceTokenDetails = placeTokenDetailsInBootstrapLog
-
-function rehydrateBootstrapLog() {
-  const log = document.getElementById('bootstrap-log')
-  if (!log) return
-  // If a real flow already ran on this page, don't clobber it.
-  if (log.querySelector(':scope > details.log-section')) return
-  const section = document.createElement('details')
-  section.className = 'log-section'
-  section.open = false
-  const summary = document.createElement('summary')
-  summary.className = 'log-section-heading'
-  summary.textContent = copy('sections.bootstrap')
-  section.appendChild(summary)
-  log.appendChild(section)
-  log.classList.remove('hidden')
-  const tokenDetails = document.getElementById('agent-token-details')
-  const decodedDetails = document.getElementById('decoded-payload-details')
-  for (const el of [tokenDetails, decodedDetails]) {
-    if (!el) continue
-    el.removeAttribute('open')
-    section.appendChild(el)
-  }
-}
-window.aauthRehydrateBootstrapLog = rehydrateBootstrapLog
 
 // ── Pending-authorize state (survives same-tab redirect to wallet) ──
 
@@ -1532,9 +1598,15 @@ async function resumePendingAuthorize() {
   // notesAuthorize) tell us which branch to rehydrate. Default to
   // whoami for records saved before the notes flow existed.
   const isNotes = !!saved.notesAuthorize
-  const sectionKey = isNotes ? 'sections.notes_resumed' : 'sections.whoami_resumed'
   const promptKey = isNotes ? 'notes_resumed.ps_consent_prompt' : 'whoami_resumed.ps_consent_prompt'
-  addLogSection(copy(sectionKey))
+  // Persisted log (restored at init) should already carry the in-progress
+  // Notes/Whoami section; append into it rather than branching a new
+  // "(resumed)" section. Fallback opens a fresh section if nothing's
+  // been restored (persisted log was cleared mid-flow).
+  const log = currentLog()
+  if (!log.querySelector(':scope > details.log-section')) {
+    addLogSection(copy(isNotes ? 'sections.notes' : 'sections.whoami'))
+  }
   const interactionStep = addLogStep(copy(`${promptKey}.label`), 'pending',
     desc(promptKey) +
     `<div class="token-display">Polling ${escapeHtml(saved.pollUrl)}</div>`
