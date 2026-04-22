@@ -190,6 +190,14 @@ window.aauthClearPersistedLog = clearPersistedLog
 window.aauthClearAllPersistedLogs = clearAllPersistedLogs
 window.aauthRestorePersistedLogs = restorePersistedLogs
 
+// Fire the restore synchronously at module load. app.js loads first,
+// so its IIFE would call window.aauthRestorePersistedLogs before
+// protocol.js defines it — the call silently no-ops. Running it here
+// (during protocol.js's own script task) guarantees the log is
+// restored before fireFallbackResume fires resumePendingInteraction on
+// window.load, and before any user interaction is possible.
+restorePersistedLogs()
+
 function showLog() {
   const log = currentLog()
   if (log) log.classList.remove('hidden')

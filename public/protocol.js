@@ -3244,6 +3244,7 @@
   window.aauthClearPersistedLog = clearPersistedLog;
   window.aauthClearAllPersistedLogs = clearAllPersistedLogs;
   window.aauthRestorePersistedLogs = restorePersistedLogs;
+  restorePersistedLogs();
   function showLog() {
     const log = currentLog();
     if (log) log.classList.remove("hidden");
