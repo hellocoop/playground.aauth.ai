@@ -88,7 +88,7 @@ app.get('/.well-known/aauth-agent.json', (c) => {
     jwks_uri: `${origin}/.well-known/jwks.json`,
     client_name: c.env.AGENT_NAME,
     name: c.env.AGENT_NAME,
-    logo_uri: c.env.AGENT_LOGO_URI ?? `${origin}/favicon.svg`,
+    logo_uri: c.env.AGENT_LOGO_URI ?? `${origin}/logo.svg`,
     bootstrap_endpoint: `${origin}/bootstrap/challenge`,
     bootstrap_verify_endpoint: `${origin}/bootstrap/verify`,
     refresh_endpoint: `${origin}/refresh/challenge`,
@@ -105,6 +105,7 @@ app.get('/.well-known/aauth-resource.json', (c) => {
     issuer: origin,
     jwks_uri: `${origin}/.well-known/jwks.json`,
     client_name: c.env.AGENT_NAME,
+    logo_uri: c.env.AGENT_LOGO_URI ?? `${origin}/logo.svg`,
     authorization_endpoint: `${origin}/authorize`,
     scope_descriptions: SCOPE_DESCRIPTIONS,
   })
