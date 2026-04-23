@@ -803,7 +803,19 @@ document.getElementById('notes-reset-btn')?.addEventListener('click', () => {
       setAuthenticated(savedAgentId)
       document.getElementById('agent-id').textContent = savedAgentId
     } else {
+      // Drop the stale binding and the persisted log (protocol.js
+      // already restored it at module-load, which un-hides
+      // #bootstrap-artifacts — leaving it visible would show a
+      // half-bootstrapped page). The log wrapper is re-hidden to
+      // match the default pre-bootstrap layout.
       window.aauthBinding.clearBinding()
+      window.aauthClearAllPersistedLogs?.()
+      const log = document.getElementById('bootstrap-log')
+      if (log) {
+        log.innerHTML = ''
+        log.classList.add('hidden')
+      }
+      document.getElementById('bootstrap-artifacts')?.classList.add('hidden')
     }
   } else if (localStorage.getItem('aauth-pending-bootstrap')) {
     // First-bootstrap resume case: no agent_token exists yet, but the
