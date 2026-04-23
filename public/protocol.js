@@ -4020,7 +4020,7 @@ ${renderJSON(body)}`;
         resourceToken = parseInteractionHeader(requirement)["resource-token"];
       }
       if (res.status === 200) {
-        resolveStep(step1, "success", `Agent \u2192 Whoami: GET ${whoamiPathDisplay} \u2192 200`);
+        resolveStep(step1, "success", `Agent \u2192 Whoami: GET ${whoamiPathDisplay}`);
         appendStepBody(step1, formatResponse(200, respHeaders, body));
         addLogStep(
           "Agent identity received",
@@ -4030,11 +4030,11 @@ ${renderJSON(body)}`;
         return;
       }
       if (res.status === 401 && resourceToken) {
-        resolveStep(step1, "success", `Agent \u2192 Whoami: GET ${whoamiPathDisplay} \u2192 401`);
+        resolveStep(step1, "success", `Agent \u2192 Whoami: GET ${whoamiPathDisplay}`);
         appendStepBody(step1, formatResponse(401, respHeaders, body));
-        appendStepBody(step1, formatToken("Resource Token (aa-resource+jwt)", resourceToken, decodeJWTPayloadBrowser(resourceToken)));
+        appendStepBody(step1, formatDecoded(decodeJWTPayloadBrowser(resourceToken)));
       } else {
-        resolveStep(step1, "error", `Agent \u2192 Whoami: GET ${whoamiPathDisplay} \u2192 ${res.status}`);
+        resolveStep(step1, "error", `Agent \u2192 Whoami: GET ${whoamiPathDisplay}`);
         appendStepBody(step1, formatResponse(res.status, respHeaders, body) + anotherRequestButton());
         return;
       }
@@ -4103,11 +4103,11 @@ ${renderJSON(body)}`;
       }
       if (psRes.status === 200 && psResBody?.auth_token) {
         authToken = psResBody.auth_token;
-        resolveStep(step2, "success", `Agent \u2192 Person Server: POST ${psPath} \u2192 200`);
+        resolveStep(step2, "success", `Agent \u2192 Person Server: POST ${psPath}`);
         appendStepBody(step2, formatResponse(200, respHeaders, psResBody));
-        appendStepBody(step2, formatToken("Auth Token (aa-auth+jwt)", authToken, decodeJWTPayloadBrowser(authToken)));
+        appendStepBody(step2, formatDecoded(decodeJWTPayloadBrowser(authToken)));
       } else if (psRes.status === 202) {
-        resolveStep(step2, "success", `Agent \u2192 Person Server: POST ${psPath} \u2192 202`);
+        resolveStep(step2, "success", `Agent \u2192 Person Server: POST ${psPath}`);
         appendStepBody(step2, formatResponse(202, respHeaders, psResBody));
         const reqHeader = psRes.headers.get("aauth-requirement") || "";
         const fromHeader = parseInteractionHeader(reqHeader);
@@ -4190,7 +4190,7 @@ ${renderJSON(body)}`;
         components: ["@method", "@authority", "@path", "signature-key"]
       });
       const body = await res.json().catch(() => null);
-      resolveStep(step, res.ok ? "success" : "error", `Agent \u2192 Whoami: GET ${whoamiPathDisplay} \u2192 ${res.status}`);
+      resolveStep(step, res.ok ? "success" : "error", `Agent \u2192 Whoami: GET ${whoamiPathDisplay}`);
       if (res.ok) {
         addLogStep(
           "Identity claims received",
@@ -4504,7 +4504,12 @@ ${renderJSON(body)}`;
         if (res.status === 200) {
           clearPendingAuthorize();
           resolveStep(pollStep, "success", fmt(copy("authorize.ps_pending_longpoll.label_resolved_template"), { path: pollPath, status: 200 }));
-          resolveStep(interactionStep, "success", "Interaction Completed");
+          if (interactionStep) {
+            const ibody = interactionStep.querySelector(".log-step-body");
+            if (ibody) ibody.innerHTML = "";
+            resolveStep(interactionStep, "success", "Interaction Completed");
+            demoteIfEmpty(interactionStep);
+          }
           if (options.onAuthToken && body?.auth_token) {
             await options.onAuthToken(body.auth_token);
           } else {
@@ -4772,7 +4777,7 @@ ${renderJSON(body)}`;
         resourceToken = body.resource_token;
         resolveStep(step1, "success", fmt(copy("notes.authorize_request.label_resolved_template"), { path: authzPath, status: res.status }));
         appendStepBody(step1, formatResponse(res.status, null, body));
-        appendStepBody(step1, formatToken("Resource Token (aa-resource+jwt)", resourceToken, decodeJWTPayloadBrowser(resourceToken)));
+        appendStepBody(step1, formatDecoded(decodeJWTPayloadBrowser(resourceToken)));
       } else {
         resolveStep(step1, "error", fmt(copy("notes.authorize_request.label_resolved_template"), { path: authzPath, status: res.status }));
         appendStepBody(step1, formatResponse(res.status, null, body) + anotherRequestButton());
@@ -4843,7 +4848,7 @@ ${renderJSON(body)}`;
         authToken = psResBody.auth_token;
         resolveStep(step2, "success", fmt(copy("notes.ps_token_request.label_resolved_template"), { path: psPath, status: 200 }));
         appendStepBody(step2, formatResponse(200, respHeaders, psResBody));
-        appendStepBody(step2, formatToken("Auth Token (aa-auth+jwt)", authToken, decodeJWTPayloadBrowser(authToken)));
+        appendStepBody(step2, formatDecoded(decodeJWTPayloadBrowser(authToken)));
       } else if (psRes.status === 202) {
         resolveStep(step2, "success", fmt(copy("notes.ps_token_request.label_resolved_template"), { path: psPath, status: 202 }));
         appendStepBody(step2, formatResponse(202, respHeaders, psResBody));
@@ -4914,7 +4919,7 @@ ${renderJSON(body)}`;
     addLogStep(
       copy("notes.auth_token_received.label"),
       "success",
-      desc("notes.auth_token_received") + formatToken("Auth Token (aa-auth+jwt)", authToken, decodeJWTPayloadBrowser(authToken)) + anotherRequestButton()
+      desc("notes.auth_token_received") + formatDecoded(decodeJWTPayloadBrowser(authToken)) + anotherRequestButton()
     );
     revealNotesApp();
     renderNotesApp();

@@ -1250,7 +1250,7 @@ async function runWhoamiCall(whoamiUrl, bindingPs, hints) {
     // claims. No PS exchange step — render the body as the final
     // response and end the flow.
     if (res.status === 200) {
-      resolveStep(step1, 'success', `Agent → Whoami: GET ${whoamiPathDisplay} → 200`)
+      resolveStep(step1, 'success', `Agent → Whoami: GET ${whoamiPathDisplay}`)
       appendStepBody(step1, formatResponse(200, respHeaders, body))
       addLogStep('Agent identity received', 'success',
         `<p>No scopes were requested, so whoami returned the agent's own identity straight from the agent_token — no Person Server exchange needed.</p>` +
@@ -1260,11 +1260,11 @@ async function runWhoamiCall(whoamiUrl, bindingPs, hints) {
       return
     }
     if (res.status === 401 && resourceToken) {
-      resolveStep(step1, 'success', `Agent → Whoami: GET ${whoamiPathDisplay} → 401`)
+      resolveStep(step1, 'success', `Agent → Whoami: GET ${whoamiPathDisplay}`)
       appendStepBody(step1, formatResponse(401, respHeaders, body))
-      appendStepBody(step1, formatToken('Resource Token (aa-resource+jwt)', resourceToken, decodeJWTPayloadBrowser(resourceToken)))
+      appendStepBody(step1, formatDecoded(decodeJWTPayloadBrowser(resourceToken)))
     } else {
-      resolveStep(step1, 'error', `Agent → Whoami: GET ${whoamiPathDisplay} → ${res.status}`)
+      resolveStep(step1, 'error', `Agent → Whoami: GET ${whoamiPathDisplay}`)
       appendStepBody(step1, formatResponse(res.status, respHeaders, body) + anotherRequestButton())
       return
     }
@@ -1334,11 +1334,11 @@ async function runWhoamiCall(whoamiUrl, bindingPs, hints) {
 
     if (psRes.status === 200 && psResBody?.auth_token) {
       authToken = psResBody.auth_token
-      resolveStep(step2, 'success', `Agent → Person Server: POST ${psPath} → 200`)
+      resolveStep(step2, 'success', `Agent → Person Server: POST ${psPath}`)
       appendStepBody(step2, formatResponse(200, respHeaders, psResBody))
-      appendStepBody(step2, formatToken('Auth Token (aa-auth+jwt)', authToken, decodeJWTPayloadBrowser(authToken)))
+      appendStepBody(step2, formatDecoded(decodeJWTPayloadBrowser(authToken)))
     } else if (psRes.status === 202) {
-      resolveStep(step2, 'success', `Agent → Person Server: POST ${psPath} → 202`)
+      resolveStep(step2, 'success', `Agent → Person Server: POST ${psPath}`)
       appendStepBody(step2, formatResponse(202, respHeaders, psResBody))
 
       const reqHeader = psRes.headers.get('aauth-requirement') || ''
@@ -1432,7 +1432,7 @@ async function retryWhoami(whoamiUrl, whoamiPathDisplay, authToken, keyPair, sig
       components: ['@method', '@authority', '@path', 'signature-key'],
     })
     const body = await res.json().catch(() => null)
-    resolveStep(step, res.ok ? 'success' : 'error', `Agent → Whoami: GET ${whoamiPathDisplay} → ${res.status}`)
+    resolveStep(step, res.ok ? 'success' : 'error', `Agent → Whoami: GET ${whoamiPathDisplay}`)
     if (res.ok) {
       // Skip the generic Response block — the "Identity claims received"
       // step below renders the same JSON as the protocol-level response,
@@ -1911,7 +1911,18 @@ async function _startAuthTokenPollingImpl(pollUrl, baseUrl, interactionStep, pol
       if (res.status === 200) {
         clearPendingAuthorize()
         resolveStep(pollStep, 'success', fmt(copy('authorize.ps_pending_longpoll.label_resolved_template'), { path: pollPath, status: 200 }))
-        resolveStep(interactionStep, 'success', 'Interaction Completed')
+        // Interaction step renders label-only on success — the poll
+        // step directly above already shows the request/response, so
+        // keeping a collapsible body with a stale "Polling…" line
+        // just repeats a URL the reader can see. Empty body + demote
+        // strips the chevron so the dropdown doesn't tease content
+        // that isn't there.
+        if (interactionStep) {
+          const ibody = interactionStep.querySelector('.log-step-body')
+          if (ibody) ibody.innerHTML = ''
+          resolveStep(interactionStep, 'success', 'Interaction Completed')
+          demoteIfEmpty(interactionStep)
+        }
         // If a caller supplied onAuthToken (e.g. whoami needs to retry the
         // resource call with the freshly-minted token), hand off to them.
         // Otherwise render the generic "Authorization Granted" step.
@@ -2246,7 +2257,7 @@ async function runNotesAuthorize(operations, bindingPs, hints) {
       resourceToken = body.resource_token
       resolveStep(step1, 'success', fmt(copy('notes.authorize_request.label_resolved_template'), { path: authzPath, status: res.status }))
       appendStepBody(step1, formatResponse(res.status, null, body))
-      appendStepBody(step1, formatToken('Resource Token (aa-resource+jwt)', resourceToken, decodeJWTPayloadBrowser(resourceToken)))
+      appendStepBody(step1, formatDecoded(decodeJWTPayloadBrowser(resourceToken)))
     } else {
       resolveStep(step1, 'error', fmt(copy('notes.authorize_request.label_resolved_template'), { path: authzPath, status: res.status }))
       appendStepBody(step1, formatResponse(res.status, null, body) + anotherRequestButton())
@@ -2319,7 +2330,7 @@ async function runNotesAuthorize(operations, bindingPs, hints) {
       authToken = psResBody.auth_token
       resolveStep(step2, 'success', fmt(copy('notes.ps_token_request.label_resolved_template'), { path: psPath, status: 200 }))
       appendStepBody(step2, formatResponse(200, respHeaders, psResBody))
-      appendStepBody(step2, formatToken('Auth Token (aa-auth+jwt)', authToken, decodeJWTPayloadBrowser(authToken)))
+      appendStepBody(step2, formatDecoded(decodeJWTPayloadBrowser(authToken)))
     } else if (psRes.status === 202) {
       resolveStep(step2, 'success', fmt(copy('notes.ps_token_request.label_resolved_template'), { path: psPath, status: 202 }))
       appendStepBody(step2, formatResponse(202, respHeaders, psResBody))
@@ -2392,7 +2403,7 @@ async function finalizeNotesAuthToken(authToken) {
   localStorage.setItem(NOTES_AUTH_TOKEN_KEY, authToken)
   addLogStep(copy('notes.auth_token_received.label'), 'success',
     desc('notes.auth_token_received') +
-      formatToken('Auth Token (aa-auth+jwt)', authToken, decodeJWTPayloadBrowser(authToken)) +
+      formatDecoded(decodeJWTPayloadBrowser(authToken)) +
       anotherRequestButton(),
   )
   revealNotesApp()
