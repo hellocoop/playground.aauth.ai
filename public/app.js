@@ -317,23 +317,27 @@ async function restoreAgentTokenAndKey() {
 
   const payload = decodeJWTPayload(savedToken)
   // Backfill the agent-id mirror key for sessions bootstrapped before
-  // saveAgentToken started writing it. Runs unconditionally (including
-  // on the expiry / missing-keypair paths below) so the else-if branch
-  // in the init IIFE can still surface the identity after we clear.
+  // saveAgentToken started writing it. Runs unconditionally so the
+  // else-if branch in the init IIFE can surface the identity even if
+  // we later drop the token below.
   if (payload.sub) localStorage.setItem('aauth-agent-id', payload.sub)
 
-  const now = Math.floor(Date.now() / 1000)
-  if (payload.exp <= now) {
-    clearAgentToken()
-    return false
-  }
-
+  // Without an ephemeral key we can't sign /refresh/challenge either,
+  // so an expired-token + no-keypair state is truly unrecoverable.
+  // Clear and let the init IIFE drop to the pre-bootstrap CTA.
   const keyPair = await loadKeyPair()
   if (!keyPair) {
     clearAgentToken()
     return false
   }
 
+  // Expired token + valid keypair: runRefresh (protocol.js) signs
+  // /refresh/challenge with the old ephemeral and passes the
+  // expired agent_token in Signature-Key; the server allows expired
+  // tokens on that endpoint specifically. Keeping the token in LS +
+  // hydrating globals lets startWhoami / startNotes fall through to
+  // runRefresh without hitting the "Cannot refresh" guard, which
+  // used to trigger any time the user returned after the 1h TTL.
   agentToken = savedToken
   ephemeralKeyPair = keyPair
   displayAgentToken({ agent_token: savedToken, agent_id: payload.sub })
