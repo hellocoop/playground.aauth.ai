@@ -313,6 +313,12 @@ async function restoreAgentTokenAndKey() {
   if (!savedToken) return false
 
   const payload = decodeJWTPayload(savedToken)
+  // Backfill the agent-id mirror key for sessions bootstrapped before
+  // saveAgentToken started writing it. Runs unconditionally (including
+  // on the expiry / missing-keypair paths below) so the else-if branch
+  // in the init IIFE can still surface the identity after we clear.
+  if (payload.sub) localStorage.setItem('aauth-agent-id', payload.sub)
+
   const now = Math.floor(Date.now() / 1000)
   if (payload.exp <= now) {
     clearAgentToken()
