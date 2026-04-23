@@ -900,13 +900,33 @@ details.log-section + details.log-section {
   margin: 0;
 }
 
-/* Success state for a resolved interaction: stop the yellow flare
-   and swap the ambient outline to green. The dark 'approved' overlay
-   + check mark that used to cover the QR + Continue button was too
-   heavy a visual — the green outline + flare-off reads as completed
-   on its own without hiding the record of what was shown. */
+/* Success state for a resolved interaction: stop the yellow flare,
+   green outline, lock the Continue button (the user already went
+   through it, re-clicking would restart a now-stale request), and
+   swap the now-stale QR code for an inline check. The box still
+   reads as the record of what was shown, just clearly past-tense. */
 .log-step.success .interaction-box::before { animation: none; background: none; }
 .log-step.success .interaction-box::after { outline: 1px solid #40d97b; outline-offset: -1.5px; }
+.log-step.success .interaction-actions .hello-btn {
+  pointer-events: none;
+  opacity: 0.5;
+  cursor: default;
+}
+.log-step.success .qr-code {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+.log-step.success .qr-code > * { display: none; }
+.log-step.success .qr-code::before {
+  content: '';
+  width: 64px;
+  height: 64px;
+  background-color: #40d97b;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='m4.5 12.75 6 6 9-13.5'/></svg>") no-repeat center / contain;
+          mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='m4.5 12.75 6 6 9-13.5'/></svg>") no-repeat center / contain;
+}
 .log-actions { margin-top: 1rem; }
 .log-actions .btn-outline { width: 100%; }
 .btn-outline {
