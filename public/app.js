@@ -293,6 +293,14 @@ window.aauthUI = { setAuthenticated, setUnauthenticated }
 function saveAgentToken(token) {
   agentToken = token
   localStorage.setItem('aauth-agent-token', token)
+  // Mirror the agent identity (aauth_sub) into its own key so the
+  // reload path can still populate #agent-id after the token itself
+  // has expired and been cleared — the binding survives, so the UI
+  // should keep showing the user's agent identity.
+  try {
+    const payload = decodeJWTPayload(token)
+    if (payload.sub) localStorage.setItem('aauth-agent-id', payload.sub)
+  } catch { /* malformed token — leave any prior id in place */ }
 }
 
 function clearAgentToken() {
@@ -731,6 +739,7 @@ document.getElementById('bootstrap-reset-btn')?.addEventListener('click', async 
     'aauth-binding-ps',
     'aauth-binding-sub',
     'aauth-agent-token',
+    'aauth-agent-id',
     'aauth-pending-bootstrap',
     'aauth-pending-authorize',
     'aauth-notes-auth-token',
@@ -780,6 +789,11 @@ document.getElementById('notes-reset-btn')?.addEventListener('click', () => {
     // Binding exists but agent_token expired/missing. We're still bootstrapped;
     // Continue will refresh. Show the post-bootstrap UI.
     setAuthenticated(bindingSub || bindingPs || 'agent')
+    // displayAgentToken only runs in the restored branch, so on this
+    // expired-token path #agent-id would otherwise render empty.
+    // Repopulate from the mirror key saved alongside the token.
+    const savedAgentId = localStorage.getItem('aauth-agent-id')
+    if (savedAgentId) document.getElementById('agent-id').textContent = savedAgentId
   } else if (localStorage.getItem('aauth-pending-bootstrap')) {
     // First-bootstrap resume case: no agent_token exists yet, but the
     // ephemeral key was saved to IndexedDB before the PS redirect. Load
