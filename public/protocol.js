@@ -2917,7 +2917,7 @@
     bootstrap_resumed: {
       ps_consent_prompt: {
         label: "User at Person Server: consent prompt (resumed)",
-        label_redirected: "Redirected to Person Server consent",
+        label_redirected: "Redirected to Person Server for consent",
         description: "You returned mid-approval (page reload or redirect back from the Person Server). The agent picks up the same pending request instead of starting over."
       }
     },

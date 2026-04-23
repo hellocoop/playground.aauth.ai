@@ -1625,7 +1625,7 @@ async function resumePendingInteraction() {
   // Reuse the pre-redirect pollStep so pollForBootstrapToken resolves
   // that same entry instead of leaving a stuck-pending duplicate.
   // Pass null for the interactionStep: we've already resolved it to
-  // 'Redirected to Person Server consent'. Letting the poller
+  // 'Redirected to Person Server for consent'. Letting the poller
   // overwrite it to 'User Consent Completed' on 200 would erase the
   // resumed label users just saw flash in.
   const existingPollStep = log.querySelector('[data-poll-key="bootstrap"]')
