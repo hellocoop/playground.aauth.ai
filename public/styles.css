@@ -493,6 +493,13 @@ details.log-section > #decoded-payload-details:last-child {
    trace; other children (token panels, response blocks) keep their own
    spacing. */
 .log-step-body { margin-top: 0.5rem; }
+/* A step whose body ended up empty shouldn't claim the 0.5rem
+   margin-top above — it reads as an unexplained gap before the next
+   step. demoteIfEmpty already strips the body element entirely, but
+   keep this as a safety net for steps added with empty content that
+   weren't demoted (e.g., a step that intentionally renders label-only
+   without going through the demote helper). */
+.log-step-body:empty { display: none; }
 .log-step-body > p:first-child {
   display: none;
 }

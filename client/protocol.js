@@ -316,7 +316,10 @@ function demoteIfEmpty(step) {
     heading.querySelector('.section-chevron')?.remove()
     div.appendChild(heading)
   }
-  if (body) div.appendChild(body)
+  // Drop the empty body entirely — keeping it would render a 0.5rem
+  // margin-top gap beneath the heading (from .log-step-body), reading
+  // as extra vertical space the user notices between this step and
+  // the next.
 
   // Preserve data-* attributes (consent-key, poll-key) used by resume
   // code to find pre-redirect steps on return.
@@ -400,6 +403,16 @@ function formatToken(label, token, decoded) {
       <summary class="section-heading"><span>${escapeHtml(label)}</span>${CHEVRON_SVG}</summary>
       ${tokenWrap(renderEncodedJWT(token), 'encoded')}
     </details>
+    ${formatDecoded(decoded)}
+  `
+}
+
+// Decoded JWT payload as its own open <details>. Used on its own
+// (e.g., under a /pending or /verify response block) to surface the
+// decoded token alongside the raw response without the extra
+// 'encoded token' block formatToken emits.
+function formatDecoded(decoded) {
+  return `
     <details class="section-group" open>
       <summary class="section-heading"><span>Decoded</span>${CHEVRON_SVG}</summary>
       ${tokenWrap(renderJSON(decoded))}
@@ -622,14 +635,6 @@ async function runBootstrap(psUrl, hints) {
   addLogStep('Person Server returned no interaction URL', 'error',
     '<p>Bootstrap cannot continue — PS response lacks interaction_endpoint and aauth-requirement url.</p>')
   return false
-
-  addLogStep(copy('bootstrap.ps_bootstrap_token_received.label'), 'success',
-    desc('bootstrap.ps_bootstrap_token_received') +
-    formatToken('Bootstrap Token (aa-bootstrap+jwt)', pending.bootstrap_token, decodeJWTPayloadBrowser(pending.bootstrap_token))
-  )
-
-  // Step 4: exchange with our own agent server /bootstrap/challenge.
-  return await completeAgentServerBootstrap(pending.bootstrap_token, publicJwk, keyPair, { psUrl, psBootstrapEndpoint: bootstrapEndpoint })
 }
 
 // Poll the PS pending URL for the bootstrap_token. Polls are signed with
@@ -699,6 +704,11 @@ async function _pollForBootstrapTokenImpl(absolutePollUrl, keyPair, publicJwk, i
         trace('poll token extracted, length', token.length)
         resolveStep(pollStep, 'success', fmt(copy('bootstrap.ps_pending_longpoll.label_resolved_template'), { path: pollPath, status: 200 }))
         appendStepBody(pollStep, formatResponse(200, null, body))
+        // Decoded bootstrap_token below the response — the ceremony's
+        // follow-up "bootstrap_token received" step used to host the
+        // decoded view; inlining here avoids an extra step that would
+        // just re-render the same token.
+        appendStepBody(pollStep, formatDecoded(decodeJWTPayloadBrowser(token)))
         resolveStep(interactionStep, 'success', 'User Consent Completed')
         // Bootstrap carries no scope, so the PS cannot bundle an auth_token
         // here — only a bootstrap_token. scope/claims are negotiated later
@@ -811,9 +821,11 @@ async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, 
     return false
   }
 
-  addLogStep(copy('bootstrap.webauthn_ceremony_success.label'), 'success',
-    desc('bootstrap.webauthn_ceremony_success')
-  )
+  // Body is intentionally empty — the step's label ("User at Browser:
+  // WebAuthn ceremony") is self-explanatory, and isExpandable(content)
+  // returns false for an empty string, so the step renders as a static
+  // <div> (no chevron, no expand-to-nothing).
+  addLogStep(copy('bootstrap.webauthn_ceremony_success.label'), 'success', '')
 
   // POST /bootstrap/verify — also signed with sig=jwt + bootstrap_token.
   const verifyEndpoint = `${window.location.origin}/bootstrap/verify`
@@ -853,6 +865,13 @@ async function completeAgentServerBootstrap(bootstrapToken, publicJwk, keyPair, 
     }
     resolveStep(verifyStep, 'success', fmt(copy('bootstrap.agent_server_verify_request.label_resolved_template'), { path: '/bootstrap/verify', status: 200 }))
     appendStepBody(verifyStep, formatResponse(200, null, result))
+    // Decoded agent_token under the response — same pattern as the
+    // poll step's decoded bootstrap_token. Answers the "what's in
+    // this JWT?" question without making the reader paste it into
+    // jwt.io.
+    if (result?.agent_token) {
+      appendStepBody(verifyStep, formatDecoded(decodeJWTPayloadBrowser(result.agent_token)))
+    }
   } catch (err) {
     resolveStep(verifyStep, 'error', fmt(copy('bootstrap.agent_server_verify_request.label_error_network_template'), { path: '/bootstrap/verify' }))
     appendStepBody(verifyStep, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`)
@@ -1014,8 +1033,7 @@ async function runRefresh() {
     return null
   }
 
-  addLogStep(copy('refresh.webauthn_ceremony_success.label'), 'success',
-    desc('refresh.webauthn_ceremony_success'))
+  addLogStep(copy('refresh.webauthn_ceremony_success.label'), 'success', '')
 
   const refreshVerifyEndpoint = `${window.location.origin}/refresh/verify`
   const refreshVerifyBody = {
@@ -1613,10 +1631,10 @@ async function resumePendingInteraction() {
   const existingPollStep = log.querySelector('[data-poll-key="bootstrap"]')
   const pending = await pollForBootstrapToken(saved.pollUrl, kp, publicJwk, null, existingPollStep || undefined)
   if (!pending) return true
-  addLogStep(copy('bootstrap.ps_bootstrap_token_received.label'), 'success',
-    desc('bootstrap.ps_bootstrap_token_received') +
-    formatToken('Bootstrap Token (aa-bootstrap+jwt)', pending.bootstrap_token, decodeJWTPayloadBrowser(pending.bootstrap_token))
-  )
+  // The "Person Server response: bootstrap_token received" step has
+  // been retired — the poll step now renders the 200 JSON response
+  // + decoded payload inline, so a follow-up step would just repeat
+  // the same token in a different shape.
   await completeAgentServerBootstrap(pending.bootstrap_token, publicJwk, kp, { psUrl: saved.psUrl, psBootstrapEndpoint: saved.bootstrapEndpoint })
   // Bootstrap is a standalone flow now; don't auto-chain into /authorize.
   // The user clicks Continue when they're ready to authorize with their

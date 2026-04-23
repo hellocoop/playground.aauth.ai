@@ -3326,7 +3326,6 @@
       heading.querySelector(".section-chevron")?.remove();
       div.appendChild(heading);
     }
-    if (body) div.appendChild(body);
     for (const attr of step.attributes) {
       if (attr.name.startsWith("data-")) div.setAttribute(attr.name, attr.value);
     }
@@ -3390,6 +3389,11 @@ ${renderJSON(body)}`;
       <summary class="section-heading"><span>${escapeHtml(label)}</span>${CHEVRON_SVG}</summary>
       ${tokenWrap(renderEncodedJWT(token), "encoded")}
     </details>
+    ${formatDecoded(decoded)}
+  `;
+  }
+  function formatDecoded(decoded) {
+    return `
     <details class="section-group" open>
       <summary class="section-heading"><span>Decoded</span>${CHEVRON_SVG}</summary>
       ${tokenWrap(renderJSON(decoded))}
@@ -3555,12 +3559,6 @@ ${renderJSON(body)}`;
       "<p>Bootstrap cannot continue \u2014 PS response lacks interaction_endpoint and aauth-requirement url.</p>"
     );
     return false;
-    addLogStep(
-      copy("bootstrap.ps_bootstrap_token_received.label"),
-      "success",
-      desc("bootstrap.ps_bootstrap_token_received") + formatToken("Bootstrap Token (aa-bootstrap+jwt)", pending.bootstrap_token, decodeJWTPayloadBrowser(pending.bootstrap_token))
-    );
-    return await completeAgentServerBootstrap(pending.bootstrap_token, publicJwk, keyPair, { psUrl, psBootstrapEndpoint: bootstrapEndpoint });
   }
   var _bootstrapPollRunning = false;
   async function pollForBootstrapToken(absolutePollUrl, keyPair, publicJwk, interactionStep, pollStep) {
@@ -3611,6 +3609,7 @@ ${renderJSON(body)}`;
           trace("poll token extracted, length", token.length);
           resolveStep(pollStep, "success", fmt(copy("bootstrap.ps_pending_longpoll.label_resolved_template"), { path: pollPath, status: 200 }));
           appendStepBody(pollStep, formatResponse(200, null, body));
+          appendStepBody(pollStep, formatDecoded(decodeJWTPayloadBrowser(token)));
           resolveStep(interactionStep, "success", "User Consent Completed");
           return { bootstrap_token: token, raw: body };
         }
@@ -3709,11 +3708,7 @@ ${renderJSON(body)}`;
       );
       return false;
     }
-    addLogStep(
-      copy("bootstrap.webauthn_ceremony_success.label"),
-      "success",
-      desc("bootstrap.webauthn_ceremony_success")
-    );
+    addLogStep(copy("bootstrap.webauthn_ceremony_success.label"), "success", "");
     const verifyEndpoint = `${window.location.origin}/bootstrap/verify`;
     const verifyBody = {
       bootstrap_tx_id: challengeData.bootstrap_tx_id,
@@ -3751,6 +3746,9 @@ ${renderJSON(body)}`;
       }
       resolveStep(verifyStep, "success", fmt(copy("bootstrap.agent_server_verify_request.label_resolved_template"), { path: "/bootstrap/verify", status: 200 }));
       appendStepBody(verifyStep, formatResponse(200, null, result));
+      if (result?.agent_token) {
+        appendStepBody(verifyStep, formatDecoded(decodeJWTPayloadBrowser(result.agent_token)));
+      }
     } catch (err) {
       resolveStep(verifyStep, "error", fmt(copy("bootstrap.agent_server_verify_request.label_error_network_template"), { path: "/bootstrap/verify" }));
       appendStepBody(verifyStep, `<p style="color: var(--error)">${escapeHtml(err.message)}</p>`);
@@ -3882,11 +3880,7 @@ ${renderJSON(body)}`;
       window.aauthEphemeral.discardStaged();
       return null;
     }
-    addLogStep(
-      copy("refresh.webauthn_ceremony_success.label"),
-      "success",
-      desc("refresh.webauthn_ceremony_success")
-    );
+    addLogStep(copy("refresh.webauthn_ceremony_success.label"), "success", "");
     const refreshVerifyEndpoint = `${window.location.origin}/refresh/verify`;
     const refreshVerifyBody = {
       refresh_tx_id: challengeData.refresh_tx_id,
@@ -4329,14 +4323,9 @@ ${renderJSON(body)}`;
       interactionStep = addLogStep(resumedLabel, "success", "");
     }
     const existingPollStep = log.querySelector('[data-poll-key="bootstrap"]');
-    const pending2 = await pollForBootstrapToken(saved.pollUrl, kp, publicJwk, null, existingPollStep || void 0);
-    if (!pending2) return true;
-    addLogStep(
-      copy("bootstrap.ps_bootstrap_token_received.label"),
-      "success",
-      desc("bootstrap.ps_bootstrap_token_received") + formatToken("Bootstrap Token (aa-bootstrap+jwt)", pending2.bootstrap_token, decodeJWTPayloadBrowser(pending2.bootstrap_token))
-    );
-    await completeAgentServerBootstrap(pending2.bootstrap_token, publicJwk, kp, { psUrl: saved.psUrl, psBootstrapEndpoint: saved.bootstrapEndpoint });
+    const pending = await pollForBootstrapToken(saved.pollUrl, kp, publicJwk, null, existingPollStep || void 0);
+    if (!pending) return true;
+    await completeAgentServerBootstrap(pending.bootstrap_token, publicJwk, kp, { psUrl: saved.psUrl, psBootstrapEndpoint: saved.bootstrapEndpoint });
     return true;
   }
   window.resumePendingInteraction = resumePendingInteraction;
