@@ -792,14 +792,19 @@ document.getElementById('notes-reset-btn')?.addEventListener('click', () => {
     const payload = decodeJWTPayload(agentToken)
     setAuthenticated(payload.sub)
   } else if (bindingKey) {
-    // Binding exists but agent_token expired/missing. We're still bootstrapped;
-    // Continue will refresh. Show the post-bootstrap UI.
-    setAuthenticated(bindingSub || bindingPs || 'agent')
-    // displayAgentToken only runs in the restored branch, so on this
-    // expired-token path #agent-id would otherwise render empty.
-    // Repopulate from the mirror key saved alongside the token.
+    // Binding exists but agent_token expired/missing. Identity comes
+    // from the mirror key saved alongside the token; if it's gone too
+    // (pre-fix sessions that aged past the 1h expiry) we have nothing
+    // to render — showing "Bootstrap complete" with a blank identity
+    // would be a lie. Drop the stale binding and let the user
+    // re-bootstrap from the default pre-bootstrap UI.
     const savedAgentId = localStorage.getItem('aauth-agent-id')
-    if (savedAgentId) document.getElementById('agent-id').textContent = savedAgentId
+    if (savedAgentId) {
+      setAuthenticated(savedAgentId)
+      document.getElementById('agent-id').textContent = savedAgentId
+    } else {
+      window.aauthBinding.clearBinding()
+    }
   } else if (localStorage.getItem('aauth-pending-bootstrap')) {
     // First-bootstrap resume case: no agent_token exists yet, but the
     // ephemeral key was saved to IndexedDB before the PS redirect. Load
