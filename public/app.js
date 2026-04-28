@@ -434,7 +434,27 @@ function renderScopeRow(scope, description, opts = {}) {
   const attrs = [`value="${scope}"`]
   if (opts.checked) attrs.push('checked')
   const title = description ? ` title="${description.replace(/"/g, '&quot;')}"` : ''
-  return `<label class="checkbox-label"${title}><input type="checkbox" ${attrs.join(' ')}> <span>${scope}</span></label>`
+  return `<label class="checkbox-label" data-scope="${scope}"${title}><input type="checkbox" ${attrs.join(' ')}> <span>${scope}</span></label>`
+}
+
+// `profile` is shorthand for `name email picture`. When the user picks
+// one side, fade the other to hint the redundancy without disabling
+// either — they may still want to combine them explicitly.
+const PROFILE_CLAIMS = ['name', 'email', 'picture']
+
+function updateProfileImpliedOpacity() {
+  const grid = document.getElementById('identity-scope-grid')
+  if (!grid) return
+  const isChecked = (scope) =>
+    !!grid.querySelector(`input[type="checkbox"][value="${scope}"]:checked`)
+  const profileSelected = isChecked('profile')
+  const allProfileClaimsSelected = PROFILE_CLAIMS.every(isChecked)
+  const set = (scope, dim) => {
+    const label = grid.querySelector(`label[data-scope="${scope}"]`)
+    if (label) label.classList.toggle('scope-implied', dim)
+  }
+  set('profile', allProfileClaimsSelected)
+  for (const claim of PROFILE_CLAIMS) set(claim, profileSelected)
 }
 
 // Identity scopes split into two visual columns:
@@ -633,7 +653,10 @@ function wireSettingsAutosave() {
   }
   // Scope toggles also update the URL preview live.
   document.getElementById('identity-scope-grid')
-    ?.addEventListener('change', updateWhoamiUrlPreview)
+    ?.addEventListener('change', () => {
+      updateWhoamiUrlPreview()
+      updateProfileImpliedOpacity()
+    })
 
   // Notes operation toggles refresh the JSON body preview. Delegated on
   // the grid container because checkboxes are injected dynamically after
@@ -655,6 +678,7 @@ function wireSettingsAutosave() {
   loadSettings()
   wireSettingsAutosave()
   updateWhoamiUrlPreview()
+  updateProfileImpliedOpacity()
   updateNotesRequestPreview()
 })()
 

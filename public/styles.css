@@ -325,6 +325,10 @@ a { color: var(--accent); }
   color: var(--text);
   cursor: pointer;
 }
+/* `profile` overlaps with `name email picture`. When one side is
+   chosen, fade the other to hint at the redundancy — both remain
+   clickable. */
+.checkbox-label.scope-implied { opacity: 0.5; }
 
 /* Hints: each row is `[ ] name: [ input ]`. The checkbox gates whether
    the hint is sent — independent of whether the input has a value. */
