@@ -96,13 +96,7 @@ let __activeLogContainer = null
 
 function setActiveLog(id) {
   const el = document.getElementById(id)
-  if (el) {
-    const prev = __activeLogContainer?.id || '(none)'
-    __activeLogContainer = el
-    console.log(`[aauth-debug] setActiveLog: ${prev} → ${id}`)
-  } else {
-    console.log(`[aauth-debug] setActiveLog: element #${id} not found`)
-  }
+  if (el) __activeLogContainer = el
 }
 
 function currentLog() {
@@ -269,7 +263,6 @@ function currentSection(log) {
 function addLogStep(label, status, content) {
   const log = currentLog()
   if (!log) return null
-  console.log(`[aauth-debug] addLogStep "${label}" → #${log.id} (status=${status})`)
   showLog()
   const target = currentSection(log)
   const expandable = isExpandable(content)
@@ -1179,7 +1172,6 @@ async function startBootstrap() {
 // drives both the ?scope= query and what the PS releases into the token.
 
 async function startWhoami() {
-  console.log(`[aauth-debug] startWhoami enter, currentLog=${currentLog()?.id}, _authzPollRunning=${_authzPollRunning}, pendingAuthz=${localStorage.getItem('aauth-pending-authorize')}`)
   const { bindingPs } = window.aauthBinding.get()
   if (!bindingPs) {
     alert('No agent binding found. Bootstrap first.')
@@ -1410,13 +1402,10 @@ async function runWhoamiCall(whoamiUrl, bindingPs, hints) {
           psUrl: bindingPs,
           whoamiUrl,
         })
-        console.log(`[aauth-debug] whoami: starting polling, currentLog=${currentLog()?.id}`)
         startAuthTokenPolling(pollUrl, tokenEndpoint, interactionStep, pollStep, {
           onAuthToken: async (tokenFromPoll) => {
-            console.log(`[aauth-debug] whoami onAuthToken (initial) fired, currentLog=${currentLog()?.id}, hasToken=${!!tokenFromPoll}`)
             showWhoamiAuthTokenReceived(tokenFromPoll)
             await retryWhoami(whoamiUrl, whoamiPathDisplay, tokenFromPoll, keyPair, signingJwk)
-            console.log(`[aauth-debug] whoami onAuthToken (initial) done, currentLog=${currentLog()?.id}`)
           },
         })
       }
@@ -1817,10 +1806,8 @@ async function resumePendingAuthorize() {
     const signingJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
     options = {
       onAuthToken: async (tokenFromPoll) => {
-        console.log(`[aauth-debug] whoami onAuthToken (resumed) fired, currentLog=${currentLog()?.id}, hasToken=${!!tokenFromPoll}`)
         showWhoamiAuthTokenReceived(tokenFromPoll)
         await retryWhoami(saved.whoamiUrl, whoamiPathDisplay, tokenFromPoll, keyPair, signingJwk)
-        console.log(`[aauth-debug] whoami onAuthToken (resumed) done, currentLog=${currentLog()?.id}`)
       },
     }
   }
@@ -1872,17 +1859,12 @@ if (document.readyState === 'complete') {
 let _authzPollRunning = false
 
 async function startAuthTokenPolling(pollUrl, baseUrl, interactionStep, pollStep, options = {}) {
-  if (_authzPollRunning) {
-    console.log(`[aauth-debug] startAuthTokenPolling SKIPPED — _authzPollRunning already true (pollUrl=${pollUrl})`)
-    return
-  }
+  if (_authzPollRunning) return
   _authzPollRunning = true
-  console.log(`[aauth-debug] startAuthTokenPolling enter, currentLog=${currentLog()?.id}, pollUrl=${pollUrl}`)
   try {
     await _startAuthTokenPollingImpl(pollUrl, baseUrl, interactionStep, pollStep, options)
   } finally {
     _authzPollRunning = false
-    console.log(`[aauth-debug] startAuthTokenPolling exit (guard cleared)`)
   }
 }
 
@@ -1962,7 +1944,6 @@ async function _startAuthTokenPollingImpl(pollUrl, baseUrl, interactionStep, pol
         // overlays an approved check mark across the box.
         resolveStep(interactionStep, 'success', 'Interaction Completed')
         pinLog()
-        console.log(`[aauth-debug] poll 200, hasOnAuthToken=${!!options.onAuthToken}, hasBodyAuthToken=${!!body?.auth_token}, currentLog=${currentLog()?.id}`)
         // If a caller supplied onAuthToken (e.g. whoami needs to retry the
         // resource call with the freshly-minted token), hand off to them.
         // Otherwise render the generic "Authorization Granted" step.
@@ -2190,7 +2171,6 @@ function getSelectedNotesOperations() {
 }
 
 async function startNotes() {
-  console.log(`[aauth-debug] startNotes enter, currentLog=${currentLog()?.id}, _authzPollRunning=${_authzPollRunning}, pendingAuthz=${localStorage.getItem('aauth-pending-authorize')}`)
   const { bindingPs } = window.aauthBinding.get()
   if (!bindingPs) {
     alert('No agent binding found. Bootstrap first.')
