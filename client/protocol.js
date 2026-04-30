@@ -1892,6 +1892,16 @@ async function _startAuthTokenPollingImpl(pollUrl, baseUrl, interactionStep, pol
   const agentToken = localStorage.getItem('aauth-agent-token')
   if (!keyPair || !agentToken) return
   const signingJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
+  // Pin the log container this poll loop writes into. While the
+  // long-poll awaits user interaction, other code may run that flips
+  // __activeLogContainer (e.g. restoreNotesApp → callNotesAPI on page
+  // reload, or any addLogStep from another flow). When the 200 finally
+  // arrives, currentLog() may no longer point at the log this flow
+  // started in — terminal steps would then land in the wrong tab and
+  // read as a "stuck" flow. Capture once, restore right before every
+  // terminal addLogStep / onAuthToken handoff.
+  const targetLog = currentLog()
+  const pinLog = () => { if (targetLog) __activeLogContainer = targetLog }
 
   const pollPath = new URL(absolutePollUrl).pathname
   // Caller can pre-create the pollStep so the log orders as
@@ -1949,6 +1959,7 @@ async function _startAuthTokenPollingImpl(pollUrl, baseUrl, interactionStep, pol
         // (.log-step.success .interaction-box) stops the flare and
         // overlays an approved check mark across the box.
         resolveStep(interactionStep, 'success', 'Interaction Completed')
+        pinLog()
         console.log(`[aauth-debug] poll 200, hasOnAuthToken=${!!options.onAuthToken}, hasBodyAuthToken=${!!body?.auth_token}, currentLog=${currentLog()?.id}`)
         // If a caller supplied onAuthToken (e.g. whoami needs to retry the
         // resource call with the freshly-minted token), hand off to them.
@@ -1966,6 +1977,7 @@ async function _startAuthTokenPollingImpl(pollUrl, baseUrl, interactionStep, pol
         clearPendingAuthorize()
         resolveStep(pollStep, 'error', fmt(copy('authorize.ps_pending_longpoll.label_resolved_template'), { path: pollPath, status: 404 }))
         resolveStep(interactionStep, 'error', 'Interaction Expired')
+        pinLog()
         addLogStep('Interaction expired', 'error',
           formatResponse(404, null, body) + anotherRequestButton())
         return
@@ -1975,6 +1987,7 @@ async function _startAuthTokenPollingImpl(pollUrl, baseUrl, interactionStep, pol
         const label = res.status === 403 ? 'Interaction Denied' : 'Interaction Timed Out'
         resolveStep(pollStep, 'error', fmt(copy('authorize.ps_pending_longpoll.label_resolved_template'), { path: pollPath, status: res.status }))
         resolveStep(interactionStep, 'error', label)
+        pinLog()
         addLogStep(copy(res.status === 403 ? 'authorize.authorization_denied.label' : 'authorize.authorization_timed_out.label'), 'error',
           formatResponse(res.status, null, body) + anotherRequestButton())
         return

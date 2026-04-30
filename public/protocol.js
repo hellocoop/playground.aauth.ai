@@ -4459,6 +4459,10 @@ ${renderJSON(body)}`;
     const agentToken = localStorage.getItem("aauth-agent-token");
     if (!keyPair || !agentToken) return;
     const signingJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    const targetLog = currentLog();
+    const pinLog = () => {
+      if (targetLog) __activeLogContainer = targetLog;
+    };
     const pollPath = new URL(absolutePollUrl).pathname;
     if (!pollStep) {
       pollStep = addLogStep(
@@ -4502,6 +4506,7 @@ ${renderJSON(body)}`;
           clearPendingAuthorize();
           resolveStep(pollStep, "success", fmt(copy("authorize.ps_pending_longpoll.label_resolved_template"), { path: pollPath, status: 200 }));
           resolveStep(interactionStep, "success", "Interaction Completed");
+          pinLog();
           console.log(`[aauth-debug] poll 200, hasOnAuthToken=${!!options.onAuthToken}, hasBodyAuthToken=${!!body?.auth_token}, currentLog=${currentLog()?.id}`);
           if (options.onAuthToken && body?.auth_token) {
             await options.onAuthToken(body.auth_token);
@@ -4518,6 +4523,7 @@ ${renderJSON(body)}`;
           clearPendingAuthorize();
           resolveStep(pollStep, "error", fmt(copy("authorize.ps_pending_longpoll.label_resolved_template"), { path: pollPath, status: 404 }));
           resolveStep(interactionStep, "error", "Interaction Expired");
+          pinLog();
           addLogStep(
             "Interaction expired",
             "error",
@@ -4530,6 +4536,7 @@ ${renderJSON(body)}`;
           const label = res.status === 403 ? "Interaction Denied" : "Interaction Timed Out";
           resolveStep(pollStep, "error", fmt(copy("authorize.ps_pending_longpoll.label_resolved_template"), { path: pollPath, status: res.status }));
           resolveStep(interactionStep, "error", label);
+          pinLog();
           addLogStep(
             copy(res.status === 403 ? "authorize.authorization_denied.label" : "authorize.authorization_timed_out.label"),
             "error",
