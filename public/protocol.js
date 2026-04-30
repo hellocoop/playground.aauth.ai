@@ -4139,6 +4139,7 @@ ${renderJSON(body)}`;
           });
           startAuthTokenPolling(pollUrl, tokenEndpoint, interactionStep, pollStep, {
             onAuthToken: async (tokenFromPoll) => {
+              showWhoamiAuthTokenReceived(tokenFromPoll);
               await retryWhoami(whoamiUrl, whoamiPathDisplay, tokenFromPoll, keyPair, signingJwk);
             }
           });
@@ -4155,6 +4156,13 @@ ${renderJSON(body)}`;
       return;
     }
     await retryWhoami(whoamiUrl, whoamiPathDisplay, authToken, keyPair, signingJwk);
+  }
+  function showWhoamiAuthTokenReceived(authToken) {
+    addLogStep(
+      "Auth Token received",
+      "success",
+      `<p>The Person Server released an auth_token for the requested whoami scopes. The agent will use this to sign the next call to Whoami.</p>` + formatDecoded(decodeJWTPayloadBrowser(authToken))
+    );
   }
   async function retryWhoami(whoamiUrl, whoamiPathDisplay, authToken, keyPair, signingJwk) {
     const step = addLogStep(
@@ -4388,6 +4396,7 @@ ${renderJSON(body)}`;
       const signingJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
       options = {
         onAuthToken: async (tokenFromPoll) => {
+          showWhoamiAuthTokenReceived(tokenFromPoll);
           await retryWhoami(saved.whoamiUrl, whoamiPathDisplay, tokenFromPoll, keyPair, signingJwk);
         }
       };

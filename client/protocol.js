@@ -1404,6 +1404,7 @@ async function runWhoamiCall(whoamiUrl, bindingPs, hints) {
         })
         startAuthTokenPolling(pollUrl, tokenEndpoint, interactionStep, pollStep, {
           onAuthToken: async (tokenFromPoll) => {
+            showWhoamiAuthTokenReceived(tokenFromPoll)
             await retryWhoami(whoamiUrl, whoamiPathDisplay, tokenFromPoll, keyPair, signingJwk)
           },
         })
@@ -1422,6 +1423,18 @@ async function runWhoamiCall(whoamiUrl, bindingPs, hints) {
 
   // Step 3 (no-interaction path): retry whoami with the fresh auth_token.
   await retryWhoami(whoamiUrl, whoamiPathDisplay, authToken, keyPair, signingJwk)
+}
+
+function showWhoamiAuthTokenReceived(authToken) {
+  // The cached-consent (200) path renders the decoded payload inline on
+  // the token-exchange step; the consent (202) path arrives here via
+  // long-poll, so without this step the decoded auth_token would never
+  // surface — and retryWhoami's "compare against the decoded payload
+  // above" copy would have nothing to point at.
+  addLogStep('Auth Token received', 'success',
+    `<p>The Person Server released an auth_token for the requested whoami scopes. The agent will use this to sign the next call to Whoami.</p>` +
+    formatDecoded(decodeJWTPayloadBrowser(authToken))
+  )
 }
 
 async function retryWhoami(whoamiUrl, whoamiPathDisplay, authToken, keyPair, signingJwk) {
@@ -1793,6 +1806,7 @@ async function resumePendingAuthorize() {
     const signingJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
     options = {
       onAuthToken: async (tokenFromPoll) => {
+        showWhoamiAuthTokenReceived(tokenFromPoll)
         await retryWhoami(saved.whoamiUrl, whoamiPathDisplay, tokenFromPoll, keyPair, signingJwk)
       },
     }
