@@ -298,13 +298,14 @@ function updateWhoamiUrlPreview() {
     ? `${WHOAMI_ORIGIN}/?scope=${encodeURIComponent(scopeParam)}`
     : `${WHOAMI_ORIGIN}/`
   el.textContent = url
-  document.getElementById('whoami-no-scopes-caption')
-    ?.classList.toggle('hidden', scopes.length > 0)
+  const noScopesCaption = document.getElementById('whoami-no-scopes-caption')
+  const noScopes = scopes.length === 0
+  noScopesCaption?.classList.toggle('hidden', !noScopes)
   const btn = document.getElementById('whoami-btn')
   if (btn) {
-    btn.innerHTML = scopes.length > 0
-      ? 'ō&nbsp;&nbsp;&nbsp;Whoami with Hellō'
-      : 'Whoami with agent'
+    btn.innerHTML = noScopes
+      ? 'Whoami with agent'
+      : 'ō&nbsp;&nbsp;&nbsp;Whoami with Hellō'
   }
 }
 window.updateWhoamiUrlPreview = updateWhoamiUrlPreview
