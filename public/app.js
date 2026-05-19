@@ -163,6 +163,25 @@ function clearAgentToken() {
   localStorage.removeItem('aauth-agent-token')
 }
 
+// Clear the cached agent_token if its `ps` claim doesn't match the
+// currently-selected PS. Without this guard, switching the dev-mode
+// PS chooser (or shipping a new default to an existing visitor whose
+// last bootstrap pointed at the prior default) leaves a stale token
+// in place: every downstream call reads `ps` off the JWT, so the
+// playground silently targets the OLD PS even though the chooser
+// shows the new one.
+function clearAgentTokenIfPsMismatch(targetPs) {
+  const saved = localStorage.getItem('aauth-agent-token')
+  if (!saved || !targetPs) return false
+  let boundPs
+  try { boundPs = decodeJWTPayload(saved)?.ps } catch { boundPs = null }
+  if (!boundPs || boundPs === targetPs) return false
+  clearAgentToken()
+  localStorage.removeItem('aauth-agent-id')
+  setUnauthenticated()
+  return true
+}
+
 async function restoreAgentTokenAndKey() {
   const savedToken = localStorage.getItem('aauth-agent-token')
   if (!savedToken) return false
@@ -337,17 +356,17 @@ window.updateNotesRequestPreview = updateNotesRequestPreview
 // ── Settings persistence ──
 
 const SETTINGS_KEY = 'aauth-playground-settings'
-const DEFAULT_PS = 'https://person.hello-beta.net'
+const DEFAULT_PS = 'https://person.hello.coop'
 
 // Dev escape hatch: if the developer has set localStorage.plausible_ignore =
 // "true" (Plausible's own opt-out flag, repurposed here as a "developer
 // mode" signal), replace the single PS entry with a radio chooser so we can
-// point the playground at hello-staging / hello.coop / hello-dev without
+// point the playground at hello-staging / hello-beta / hello-dev without
 // shipping those options to regular visitors.
 const PS_OPTIONS = [
-  { label: 'hello-beta', url: 'https://person.hello-beta.net' },
-  { label: 'hello-staging', url: 'https://person.hello-staging.net' },
   { label: 'hello.coop', url: 'https://person.hello.coop' },
+  { label: 'hello-staging', url: 'https://person.hello-staging.net' },
+  { label: 'hello-beta', url: 'https://person.hello-beta.net' },
   { label: 'hello-dev', url: 'https://person.hello-dev.net' },
 ]
 
@@ -359,7 +378,7 @@ function renderPSChooser() {
   if (!isDevMode()) return
   const list = document.getElementById('ps-list')
   if (!list) return
-  list.innerHTML = PS_OPTIONS.map((opt, i) => `
+  list.innerHTML = PS_OPTIONS.map((opt) => `
     <li>
       <label class="radio-label">
         <input type="radio" name="ps-choice" value="${opt.url}"${opt.url === DEFAULT_PS ? ' checked' : ''}>
@@ -368,6 +387,16 @@ function renderPSChooser() {
       <button class="copy-btn" type="button" data-copy="${opt.url}" aria-label="Copy"></button>
     </li>
   `).join('')
+  // Switching the chosen PS must invalidate any cached agent_token
+  // whose `ps` claim names a different server. The token's PS is
+  // baked at bootstrap time and consumed downstream by getBoundPs()
+  // in protocol.js — without this hook, picking a new option in the
+  // chooser silently routes whoami/notes to the prior PS.
+  for (const radio of list.querySelectorAll('input[name="ps-choice"]')) {
+    radio.addEventListener('change', (e) => {
+      clearAgentTokenIfPsMismatch(e.target.value)
+    })
+  }
 }
 
 function loadSettings() {
@@ -445,6 +474,13 @@ function wireSettingsAutosave() {
 ;(async () => {
   hydrateIdentityScopes()
   renderPSChooser()
+  // Invalidate any cached agent_token whose `ps` claim doesn't match
+  // the current effective PS. Covers the non-dev case (default shifted
+  // from hello-beta to hello.coop — returning visitors would
+  // otherwise keep using the prior default until they manually
+  // re-bootstrapped) and the dev case where the chooser's default
+  // radio differs from the cached token.
+  clearAgentTokenIfPsMismatch(getCurrentPS())
   loadSettings()
   wireSettingsAutosave()
   updateWhoamiUrlPreview()
